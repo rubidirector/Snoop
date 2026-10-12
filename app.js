@@ -624,7 +624,7 @@ var AI={
     throw {code:'no_image'}})}
 };
 function aiErrMsg(err){var c=err&&err.code;
-  return {no_ai:'설정 › AI · API 관리에서 Gemini 키를 넣어 주세요.',bad_key:'API 키가 맞지 않거나 이 모델을 쓸 권한이 없어요.',busy:'지금 Gemini에 사용자가 몰려 있어요. 키는 정상이니 잠시 뒤 다시 눌러 주세요.',rate_limited:'무료 사용 한도에 걸렸어요. 1~2분 뒤에 다시 해 주세요.',
+  return {no_ai:'설정 › AI · API 관리에서 Gemini 키를 넣어 주세요.',bad_key:'API 키를 Google이 받아 주지 않았어요'+(err&&err.message?' ('+String(err.message).slice(0,160)+')':'')+'. 키를 다시 복사해 붙여넣어 보세요.',busy:'지금 Gemini에 사용자가 몰려 있어요. 키는 정상이니 잠시 뒤 다시 눌러 주세요.',rate_limited:'무료 사용 한도에 걸렸어요. 1~2분 뒤에 다시 해 주세요.',
     no_model:'사용할 수 있는 Gemini 모델을 찾지 못했어요. config.js의 모델 이름을 확인해 주세요.',network:'인터넷 연결이나 서버 주소를 확인해 주세요.',blocked:'안전 필터에 걸렸어요. 표현을 조금 바꿔 보세요.',
     parse:'결과 형식이 깨졌어요. 한 번 더 눌러 주세요.',empty:'빈 답이 왔어요. 한 번 더 눌러 주세요.',no_image:'이미지가 오지 않았어요. 이미지 모델 이름과 결제 설정을 확인해 주세요.'}[c]
     ||('만들지 못했어요'+(err&&err.message?' ('+String(err.message).slice(0,140)+')':'')+'.')}
@@ -1284,7 +1284,7 @@ function renderSettings(){
   else{
     h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.')+
       '<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
-  h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">연결됨</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
+  h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">키 입력됨</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
   h+='<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
     '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
     '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
