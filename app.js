@@ -514,7 +514,7 @@ var AIS={key:'',textModel:'',imageModel:'',images:false};
 try{Object.assign(AIS,JSON.parse(localStorage.getItem(AI_KEY)||'{}'))}catch(e){}
 function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
 function aiMode(){if(window.PHONE_AI_OVERRIDE)return 'preview';return CFG.aiProxy?'proxy':(CFG.allowUserKey&&AIS.key?'key':null)}
-function textModel(){return AIS.textModel||CFG.textModel}
+function textModel(){return CFG.textModel}
 function imageModel(){return AIS.imageModel||CFG.imageModel}
 function imagesOn(){if(window.PHONE_AI_OVERRIDE)return false;return CFG.aiProxy?!!CFG.allowImages:(!!AIS.images&&!!AIS.key)}
 function gemini(model,body){
@@ -1206,9 +1206,8 @@ function renderSettings(){
   if(aiMode()==='preview')h+='<p class="enote">'+esc(window.PHONE_AI_OVERRIDE.note||'')+'</p>';
   else if(CFG.aiProxy)h+='<p class="enote">이 사이트는 서버를 통해 Gemini에 연결돼요. 따로 키를 넣지 않아도 돼요.</p>';
   else if(!CFG.allowUserKey)h+='<p class="enote">이 사이트는 AI 기능을 꺼 두었어요.</p>';
-  else{var models=CFG.textModels.slice();if(AIS.textModel&&models.indexOf(AIS.textModel)<0)models.push(AIS.textModel);
-    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="AIza로 시작하는 키" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','Google AI Studio(aistudio.google.com)에서 무료 키를 만들 수 있어요. 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.')+
-      '<div class="g2">'+F('글 모델','<select id="aiModel">'+models.map(function(m){return '<option value="'+esc(m)+'"'+(m===textModel()?' selected':'')+'>'+esc(m)+'</option>'}).join('')+'</select>')+F('다른 모델 직접 입력','<input id="aiModelCustom" placeholder="모델 이름" value="">')+'</div>'+
+  else{
+    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.')+
       '<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
   h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">연결됨</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
   // theme
@@ -1248,8 +1247,6 @@ function setAction(d,el){
 function flashSet(msg){var el=$('#setStatus');if(el){el.textContent=msg;clearTimeout(el._t);el._t=setTimeout(function(){el.textContent=''},8000)}}
 function onSetInput(e){var el=e.target;
   if(el.id==='aiKey'){AIS.key=el.value.trim();saveAIS();aiTestMsg='';renderSide();return}
-  if(el.id==='aiModel'){AIS.textModel=el.value;saveAIS();return}
-  if(el.id==='aiModelCustom'){if(el.value.trim()){AIS.textModel=el.value.trim();saveAIS()}return}
   if(el.id==='aiImages'){AIS.images=el.checked;saveAIS();renderSettings();return}
   if(el.id==='aiImgModel'){AIS.imageModel=el.value.trim();saveAIS();return}
   if(el.dataset.t==='listed'&&e.type==='change'){Cloud.setShare(el.dataset.id,{listed:el.checked}).then(refreshCloudList,function(x){flashSet(fbMsg(x))})}
