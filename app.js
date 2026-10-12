@@ -1217,6 +1217,30 @@ function edAction(d,el){
     case 'delPh':S.gallery.splice(+d.i,1);markChanged();renderEditor();break;
   }
 }
+/* time field: auto colon, and changing the phone time moves every message/call time with it */
+function mins12(ap,h,m){h=(+h)%12;if(/오후|PM|pm/.test(ap))h+=12;return h*60+(+m)}
+function shiftClock(str0,delta){
+  return String(str0).replace(/(오전|오후)?(\s*)(\d{1,2}):(\d{2})(?![\d:])/g,function(all,ap,sp,h,m,off,whole){
+    if(!ap&&off>0&&/[\d:]/.test(whole.charAt(off-1)))return all;
+    if(ap){var t=((mins12(ap,h,m)+delta)%1440+1440)%1440,H=Math.floor(t/60);return (H>=12?'오후':'오전')+' '+(H%12||12)+':'+String(t%60).padStart(2,'0')}
+    var t2=((+h*60+(+m)+delta)%1440+1440)%1440;return sp+String(Math.floor(t2/60)).padStart(2,'0')+':'+String(t2%60).padStart(2,'0')})}
+function shiftAllTimes(delta){if(!delta)return;
+  S.threads.forEach(function(t){
+    if(/^(오전|오후)\s*\d{1,2}:\d{2}$|^\d{1,2}:\d{2}$/.test(str(t.when).trim()))t.when=shiftClock(t.when,delta);
+    t.items.forEach(function(it){if(it.t)it.t=shiftClock(it.t,delta);if(it.k==='date'&&t.app==='msg'&&/\d{1,2}:\d{2}/.test(it.v))it.v=shiftClock(it.v,delta)})});
+  S.calls.forEach(function(c){if(c.time)c.time=shiftClock(c.time,delta)})}
+function fixTimeField(e,el){
+  var dg=String(el.value).replace(/\D/g,'').slice(0,4),del=/^delete/.test(e.inputType||'');
+  var out=dg.length>=3?(dg.length===3?dg[0]:dg.slice(0,2))+':'+dg.slice(dg.length===3?1:2):(dg.length===2&&!del&&e.type==='input'?dg+':':dg);
+  if(e.type!=='change'){el.value=out;return}
+  var m=/^(\d{1,2}):(\d{2})$/.exec(out);
+  if(!m){el.value=S.owner.time;return}
+  var H=Math.min(23,+m[1]),M=Math.min(59,+m[2]),nv=String(H).padStart(2,'0')+':'+String(M).padStart(2,'0');el.value=nv;
+  var om=/^(\d{1,2}):(\d{2})$/.exec(str(S.owner.time));
+  if(nv===S.owner.time)return;
+  if(om)shiftAllTimes(H*60+M-(+om[1]*60+(+om[2])));
+  S.owner.time=nv;markChanged();
+  var ee=$('#ed');if(ee&&!ee.hidden&&edThread)renderCpv()}
 function onEdInput(e){
   var el=e.target;
   if(el.id==='aiConcept'){aiDraft.concept=el.value;return}
@@ -1228,7 +1252,7 @@ function onEdInput(e){
   if(el.dataset.pass){v=String(v).replace(/\D/g,'').slice(0,6);if(v.length&&v.length<4)return}
   if(f==='owner.battery')v=Math.min(100,Math.max(1,v||1));
   if(el.dataset.unread){var ut=thr(edThread);if(ut){var mx=maxUnread(ut);if(v>mx||v<0){v=Math.max(0,Math.min(v,mx));el.value=v;flash('안 읽은 개수는 0~'+mx+'개까지예요. 마지막으로 받은 메시지 수만큼만 넣을 수 있어요.',true)}}}
-  if(f==='owner.time'&&!/^\d{1,2}:\d{2}$/.test(v))return;
+  if(f==='owner.time'){fixTimeField(e,el);return}
   if(/^calls\.\d+\.count$/.test(f))v=Math.max(1,v||1);
   if(el.dataset.ping){if(e.type==='input'&&el.value!==''&&!/^\d+$/.test(el.value)){el.value=String(el.value).replace(/\D/g,'').slice(0,3)}v=Math.max(0,Math.min(100,parseInt(el.value,10)||0));
     if(e.type==='change'){v=Math.round(v/5)*5;el.value=v}else if(el.value!==''&&+el.value>100)el.value=100}
@@ -1377,8 +1401,8 @@ function build(){
     if(k==='edit')openEditor('basic');else if(k==='ai')openEditor('ai');else if(k==='settings')openSettings();else if(k==='relock'){closeSheet();relock()}else if(k==='closeSheet')closeSheet();
     else if(k==='copy'){var d=snapshot(),own=viewInfo&&Cloud.user&&viewInfo.owner===Cloud.user.uid;d.id=own?S.id:newId();if(!own){d.system={};d.scenario.cast=''}Lib.load().then(function(){return Lib.put(normalize(d))}).then(function(){setCur(d.id);location.href=location.pathname})}});
   var ed=$('#ed');ed.addEventListener('click',function(e){var b=e.target.closest('[data-e]');if(b&&ed.contains(b)&&!b.disabled)edAction(b.dataset,b)});
-  ed.addEventListener('input',onEdInput);ed.addEventListener('change',function(e){if(e.target.type==='date'||e.target.tagName==='SELECT'||e.target.type==='checkbox'||e.target.dataset.ping)onEdInput(e)});
-  ed.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.dataset&&e.target.dataset.ping){e.preventDefault();e.target.blur()}});
+  ed.addEventListener('input',onEdInput);ed.addEventListener('change',function(e){if(e.target.type==='date'||e.target.tagName==='SELECT'||e.target.type==='checkbox'||e.target.dataset.ping||e.target.dataset.f==='owner.time')onEdInput(e)});
+  ed.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.dataset&&(e.target.dataset.ping||e.target.dataset.f==='owner.time')){e.preventDefault();e.target.blur()}});
   ed.addEventListener('keydown',function(e){if(e.key!=='Enter'||e.isComposing||e.keyCode===229)return;if(e.target.id==='cpIn'){e.preventDefault();say(composeSide);return}if(e.target.id==='memAdd'){e.preventDefault();addMember();return}if(e.target.id==='add_sysname'){e.preventDefault();edAction({e:'sysAdd'});return}if(e.target.id==='rel_desc'){e.preventDefault();edAction({e:'relAdd'});return}if(e.target.id==='cpTime'){e.preventDefault();var ci=$('#cpIn');if(ci)ci.focus();return}var box=e.target.closest('[data-add]');if(!box||e.target.tagName==='TEXTAREA')return;e.preventDefault();var k=box.dataset.add;if(LISTS[k].add()){markChanged();renderList(k)}});
   var st=$('#set');st.addEventListener('click',function(e){var b=e.target.closest('[data-t]');if(b&&st.contains(b)&&b.type!=='checkbox')setAction(b.dataset,b)});
   st.addEventListener('input',onSetInput);st.addEventListener('change',onSetInput);
