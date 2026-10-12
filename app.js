@@ -1277,6 +1277,10 @@ function onEdInput(e){
 
 /* ---------- settings ---------- */
 var setSec='',armDel=null,armAcct=false,armWipe=false,shareOpen=null,showKey=false;
+/* real full screen (iPad/desktop): hides the browser's own clock and battery so only the phone's settings show */
+function fsAvail(){var d=document.documentElement;return !!(d.requestFullscreen||d.webkitRequestFullscreen)}
+function fsOn(){return !!(document.fullscreenElement||document.webkitFullscreenElement)}
+function fsToggle(){var d=document.documentElement;try{if(fsOn()){(document.exitFullscreen||document.webkitExitFullscreen).call(document)}else{var r=(d.requestFullscreen||d.webkitRequestFullscreen).call(d);if(r&&r.catch)r.catch(function(){flashSet('이 브라우저에서는 전체 화면을 켤 수 없어요.')})}}catch(e){flashSet('이 브라우저에서는 전체 화면을 켤 수 없어요.')}}
 function openSettings(sec){setSec=sec||'';closeSheet();if($('#set').hidden){$('#set').hidden=false;$('#setBg').hidden=false;hpush('set')}renderSettings();
   if(Cloud.user&&!cloudList)refreshCloudList();
   setTimeout(function(){var t=sec&&$('#set_'+sec);if(t)t.scrollIntoView({block:'start'})},30)}
@@ -1329,6 +1333,7 @@ function renderSettings(){
     h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.')+
       '<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
   h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">키 입력됨</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
+  h+='<div class="sec" id="set_screen"><h3>화면</h3><p class="enote">폰 안의 시계와 배터리는 꾸미기에서 정한 값으로 보여요. 사용 중인 기기 자체의 시계·배터리는 웹페이지가 바꾸거나 숨길 수 없어요.'+(fsAvail()?' 전체 화면을 켜면 기기 위쪽 표시줄이 가려져 폰 안의 시계와 배터리만 보여요.</p><div class="row"><button class="btn" data-t="fs">'+(fsOn()?'전체 화면 끄기':'전체 화면 켜기')+'</button></div>':' 이 기기의 브라우저는 전체 화면 기능을 지원하지 않아요. 홈 화면에 추가해서 열면 주소창이 사라져 더 가까워져요.</p>')+'</div>';
   h+='<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
     '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
     '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
@@ -1346,6 +1351,7 @@ function renderSettings(){
 function setAction(d,el){
   switch(d.t){
     case 'close':closeSettings();break;
+    case 'fs':fsToggle();break;
     case 'sysNotif':if(!('Notification' in window)){flashSet('이 브라우저는 시스템 알림을 지원하지 않아요.',true);break}Notification.requestPermission().then(function(r){renderSettings();flashSet(r==='granted'?'시스템 알림을 켰어요.':'알림이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.',r!=='granted')});break;
     case 'testNotif':playDing(true);var tt=S.threads[0];if(tt&&sysNotifyOk()&&document.hidden)systemNotify(tt,'알림 미리 듣기');else if(tt)showBanner(tt,'알림이 이렇게 보여요');break;
     case 'restart':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 폰 꾸미기에서 고친 내용은 그대로 반영되고, 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){applyRestart()});break;
@@ -1417,6 +1423,7 @@ function build(){
   ed.addEventListener('input',onEdInput);ed.addEventListener('change',function(e){if(e.target.type==='date'||e.target.tagName==='SELECT'||e.target.type==='checkbox'||e.target.dataset.ping||e.target.dataset.f==='owner.time')onEdInput(e)});
   ed.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.dataset&&(e.target.dataset.ping||e.target.dataset.f==='owner.time')){e.preventDefault();e.target.blur()}});
   ed.addEventListener('keydown',function(e){if(e.key!=='Enter'||e.isComposing||e.keyCode===229)return;if(e.target.id==='cpIn'){e.preventDefault();say(composeSide);return}if(e.target.id==='memAdd'){e.preventDefault();addMember();return}if(e.target.id==='add_sysname'){e.preventDefault();edAction({e:'sysAdd'});return}if(e.target.id==='rel_desc'){e.preventDefault();edAction({e:'relAdd'});return}if(e.target.id==='cpTime'){e.preventDefault();var ci=$('#cpIn');if(ci)ci.focus();return}var box=e.target.closest('[data-add]');if(!box||e.target.tagName==='TEXTAREA')return;e.preventDefault();var k=box.dataset.add;if(LISTS[k].add()){markChanged();renderList(k)}});
+  ['fullscreenchange','webkitfullscreenchange'].forEach(function(n){document.addEventListener(n,function(){layout();if(!$('#set').hidden)renderSettings()})});
   var st=$('#set');st.addEventListener('click',function(e){var b=e.target.closest('[data-t]');if(b&&st.contains(b)&&b.type!=='checkbox')setAction(b.dataset,b)});
   st.addEventListener('input',onSetInput);st.addEventListener('change',onSetInput);
   $('#setBg').addEventListener('click',function(){closeSettings()});
@@ -1428,7 +1435,7 @@ function build(){
     navigator.serviceWorker.register('sw.js').then(function(r){swReg=r},function(){})}}catch(e){}
   document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if($('#dlg')){closeDlg();return}if($('#sheet')){closeSheet();return}if(!$('#set').hidden){closeSettings();return}var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'))return;if(!$('#ed').hidden&&$('#ed').contains(tg))return;if(unlocked)A.back()});
 }
-function startPhone(){loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('화면 맨 위 가운데를 누르면 상황 설명이 나와요')},900)}
+function startPhone(){loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('위쪽 검은 섬을 누르면 상황 설명이 나와요')},900)}
 function boot(){
   build();applyTheme();
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
