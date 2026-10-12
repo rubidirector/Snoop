@@ -362,7 +362,9 @@ function rebuild(){
 function goHome(){if(!unlocked)return;if(nav.length===1&&top().s==='home')return;reset('home',{},'fade-in')}
 /* restart: the first unlock remembers every chat as it was; "restart" puts them back and drops what happened while playing */
 var baseThreads=null;
-function stripLive(th){return JSON.parse(JSON.stringify(th)).filter(function(t){return !t.lv}).map(function(t){t.items=t.items.filter(function(i){return !i.lv});return t})}
+function stripLive(th){return JSON.parse(JSON.stringify(th)).filter(function(t){return !t.lv}).map(function(t){t.items=t.items.filter(function(i){return !i.lv});
+  if(baseThreads){for(var i=0;i<baseThreads.length;i++){var b=baseThreads[i];if(b.id===t.id){t.when=b.when;t.unread=b.unread;break}}}
+  return t})}
 function captureBase(){if(baseThreads)return;baseThreads=stripLive(S.threads);if(canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}
 function dropBase(){baseThreads=null;if(canEdit&&S.id)Store.del('base:'+S.id)}
 function loadBase(){baseThreads=null;if(!canEdit||!S.id)return Promise.resolve();var id=S.id;return Store.get('base:'+id).then(function(b){if(S.id===id&&!baseThreads&&b&&b.threads)baseThreads=b.threads})}
@@ -372,7 +374,7 @@ function playing(){return !!clk()}
 function setDraftUi(){document.body.classList.toggle('drafting',draftMode);var n=$('#edNote');if(n)n.hidden=!draftMode}
 function beginDraft(){if(draftMode||!canEdit||viewMode||!playing())return;playS=S;S=JSON.parse(JSON.stringify(S));S.threads=stripLive(S.threads);draftMode=true;edThread=null;setDraftUi()}
 function endDraft(apply){if(!draftMode)return;if(!apply)S=playS;playS=null;draftMode=false;setDraftUi()}
-function applyRestart(){endDraft(true);restartStory();forceClose=true;closeEditor();forceClose=false;closeSettings();closeSheet();toast('처음부터 다시 시작했어요')}
+function applyRestart(){edDirty=false;endDraft(true);restartStory();forceClose=true;closeEditor();forceClose=false;closeSettings();closeSheet();toast('처음부터 다시 시작했어요')}
 function askLeave(){askConfirm({title:'고친 내용을 반영할까요?',msg:'하던 대화는 그대로 남아 있어요. 고친 내용은 처음부터 다시 시작해야 폰에 반영돼요.',ok:'처음부터 다시 시작',no:'수정 버리고 닫기'},applyRestart,function(){endDraft(false);saveLocal();forceClose=true;closeEditor();forceClose=false;rebuild();renderSide()})}
 function restartStory(){
   S.threads=stripLive(S.threads);baseThreads=null;
@@ -487,13 +489,23 @@ function pingPrompt(t,c){
     '\n\n관계와 감정선, 마지막 대화 흐름, 지금 시각을 생각해서 먼저 연락할 자연스러운 이유를 정하고 말풍선 1~3개를 보내라. 이미 한 말을 반복하지 말고, 이야기의 비밀을 직접 설명하지 마라. 실제 한국어 메신저처럼 짧게.\nJSON 배열만 출력: [{"v":"말풍선 내용"}]';
 }
 function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}reset('home',{},null);push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}
+function placeBanner(){var b=document.querySelector('.pbanner'),vv=window.visualViewport;if(!b)return;var off=0;if(vv){var r=phoneEl.getBoundingClientRect();off=Math.max(0,vv.offsetTop-r.top)}b.style.marginTop=off+'px'}
+if(window.visualViewport){visualViewport.addEventListener('scroll',placeBanner);visualViewport.addEventListener('resize',placeBanner)}
+addEventListener('scroll',placeBanner,{passive:true});
 function showBanner(t,text){
   var old=document.querySelector('.pbanner');if(old)old.remove();
   var b=document.createElement('button');b.className='pbanner';
   b.innerHTML='<span class="note-ic">'+(t.app==='talk'?APPI.talk:APPI.msg)+'</span><span class="note-b"><span class="note-h"><b>'+esc(t.name)+'</b><em>지금</em></span><span class="note-p">'+esc(text)+'</span></span>';
-  phoneEl.appendChild(b);requestAnimationFrame(function(){requestAnimationFrame(function(){b.classList.add('show')})});
-  b.addEventListener('click',function(){b.remove();openThreadFresh(t)});
-  setTimeout(function(){b.classList.remove('show');setTimeout(function(){b.remove()},400)},5200);
+  phoneEl.appendChild(b);placeBanner();requestAnimationFrame(function(){requestAnimationFrame(function(){b.classList.add('show')})});
+  var gone=false,timer=null,y0=null,dy=0,moved=false;
+  function dismiss(){if(gone)return;gone=true;clearTimeout(timer);b.style.transform='';b.classList.remove('show');setTimeout(function(){b.remove()},420)}
+  function arm(){clearTimeout(timer);timer=setTimeout(dismiss,5200)}
+  arm();
+  b.addEventListener('pointerdown',function(e){y0=e.clientY;dy=0;moved=false;clearTimeout(timer);try{b.setPointerCapture(e.pointerId)}catch(x){}});
+  b.addEventListener('pointermove',function(e){if(y0==null)return;dy=e.clientY-y0;if(Math.abs(dy)>8)moved=true;if(dy<0){b.style.transition='none';b.style.transform='translateY('+dy+'px)';b.style.opacity=String(Math.max(.2,1+dy/140))}});
+  function end(){if(y0==null)return;y0=null;b.style.transition='';b.style.opacity='';if(dy<-24){dismiss()}else{b.style.transform='';arm()}}
+  b.addEventListener('pointerup',end);b.addEventListener('pointercancel',end);
+  b.addEventListener('click',function(){if(moved){moved=false;return}gone=true;clearTimeout(timer);b.remove();openThreadFresh(t)});
 }
 /* ---------- notifications: in-app banner, sound, system notification ---------- */
 var soundOn=true,actx=null,swReg=null;
@@ -556,17 +568,18 @@ function aiReply(t){
   if(replyBusy[t.id]||!aiMode())return;
   replyBusy[t.id]=1;
   setTimeout(function(){if(replyBusy[t.id]){typingFor[t.id]=1;refreshChat(t)}},700);
-  var who=t.group?'단톡방 "'+t.name+'"의 멤버들('+t.members.join(', ')+')':"'"+t.name+"'";
+  var others=t.members.filter(function(m){return m!==S.owner.name});
+  var who=t.group?'단톡방 "'+t.name+'"의 멤버들('+others.join(', ')+')':"'"+t.name+"'";
   var lines=t.items.slice(-40).map(function(it){if(it.k==='date')return '--- '+sep24(it.v)+' ---';var n=it.w==='me'?S.owner.name:(t.group?(it.n||'?'):t.name);return (it.t?'['+to24(it.t)+'] ':'')+n+': '+(it.k==='photo'?'[사진'+(it.ph&&it.ph.l?': '+it.ph.l:'')+']':it.k==='voice'?'[음성 메시지]':it.v)}).join('\n');
   var prompt='너는 인터랙티브 픽션 속 인물을 연기한다. 지금 너는 '+who+'이고, 스마트폰 메신저로 폰 주인 \''+S.owner.name+'\'와 대화 중이다.\n\n이야기 설정: '+(S.scenario.title?S.scenario.title+' — ':'')+S.scenario.text+'\n'+(S.scenario.cast?'등장인물: '+S.scenario.cast+'\n':'')+(t.status?t.name+'의 상태메시지: '+t.status+'\n':'')+sysBlock(t.group?t.members.concat([t.name]):[t.name])+'\n'+
     '\n지금 폰의 날짜와 시각: '+(function(){var d=phoneNow();return d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일 '+hhmm(d)})()+'. 시간대(새벽·아침·밤 등)와 시각을 말할 때는 반드시 이 시각에 맞춰라.\n'+
     '\n최근 대화 (위가 오래된 것, [ ]는 보낸 시각):\n'+lines+'\n\n\''+S.owner.name+'\'가 방금 보낸 메시지에 답장해라. 비공개 설정의 성격·말투·관계·지침을 지키고, 지금까지의 맥락과 감정선을 그대로 이어 간다. 실제 한국어 메신저처럼 짧고 자연스럽게, 말풍선 1~3개. 이야기의 비밀을 직접 설명하지 말고, 너는 AI라는 말도 하지 마라.\n'+
-    'JSON 배열만 출력: [{"v":"말풍선 내용"'+(t.group?',"n":"보낸 멤버 이름"':'')+'}]';
+    (t.group?'답장은 위 멤버들('+others.join(', ')+') 중에서만 나온다. 폰 주인 \''+S.owner.name+'\'는 절대 답장하지 마라. 폰 주인의 말·행동을 대신 쓰지 마라.\n':'')+'JSON 배열만 출력: [{"v":"말풍선 내용"'+(t.group?',"n":"보낸 멤버 이름(반드시 멤버 중 한 명)"':'')+'}]';
   AI.json(prompt).then(function(res){
-    var out=arr(Array.isArray(res)?res:res&&(res.messages||res.items)).filter(function(x){return x&&str(x.v).trim()}).slice(0,4);
+    var out=arr(Array.isArray(res)?res:res&&(res.messages||res.items)).filter(function(x){return x&&str(x.v).trim()&&!(t.group&&str(x.n).trim()===S.owner.name)}).slice(0,4);
     var i=0;(function next(){if(i>=out.length){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);markChanged(true);
       if(out.length&&(!inThread(t)||document.hidden)){delete seen[t.id];t.unread=maxUnread(t);var e2=top();if(e2&&['lock','home','msgs','talk'].indexOf(e2.s)>=0)repaintTop(true);notify(t,str(out[out.length-1].v))}return}
-      var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group)it.n=str(x.n)||t.members[0]||'?';
+      var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group){var nn=str(x.n).trim();it.n=(nn&&others.indexOf(nn)>=0)?nn:(others[0]||t.members[0]||'?')}
       it.lv=1;t.items.push(it);t.when=nowLabel();refreshChat(t);setTimeout(next,650+Math.min(1400,it.v.length*45))})();
   }).catch(function(err){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(err&&err.code==='rate_limited'?'답장이 잠시 늦어지고 있어요':'답장을 받지 못했어요')});
 }
@@ -812,8 +825,10 @@ var Lib={metas:[],
 function setCur(id){try{localStorage.setItem('phone-cur',id)}catch(e){}}
 function getCur(){try{return localStorage.getItem('phone-cur')}catch(e){return null}}
 var phoneT,storeT,savedAt=null,saveFail=false,cloudT,cloudAt=null,cloudErr='';
+var edDirty=false;
+function updateEdGo(){var b=$('#edGo');if(!b)return;b.textContent=edDirty?'처음부터 시작':'닫기';b.dataset.e=edDirty?'close':'leave';b.classList.toggle('primary',edDirty)}
 function markChanged(noPhone){
-  if(!canEdit)return;
+  if(!canEdit)return;if(!$('#ed').hidden&&!edDirty){edDirty=true;updateEdGo()}
   clearTimeout(storeT);storeT=setTimeout(saveLocal,700);
   if(!noPhone&&!draftMode){clearTimeout(phoneT);phoneT=setTimeout(function(){rebuild();renderSide()},220)}
 }
@@ -910,8 +925,9 @@ var armRegen=null,fillSel=null,genSel=null,busy=null,stopFlag=false,aiProg=0,pro
 var LOCK='<svg viewBox="0 0 24 24" width="13" height="13" style="display:inline-block;vertical-align:-1px;margin-right:4px" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>';
 var TABS=[['ai','✦ AI'],['basic','기본'],['chats','대화·연락처'],['photos','사진'],['rec','기록'],['sys',LOCK+'시스템']];
 function flash(msg,err){noteMsg=msg;noteErr=!!err;updateFoot();clearTimeout(noteT);noteT=setTimeout(function(){noteMsg='';updateFoot()},err?9000:6000)}
-function openEditor(tab){if(!canEdit)return;if(tab)edTab=tab;closeSheet();closeSettings();if($('#ed').hidden){$('#ed').hidden=false;hpush('ed')}beginDraft();setDraftUi();layout();renderEditor()}
-function closeEditor(fromHist){if($('#ed').hidden)return;if(draftMode&&!forceClose){if(fromHist){H.push('ed');arm()}askLeave();return}if(!fromHist&&hback('ed'))return;$('#ed').hidden=true;layout()}
+function openEditor(tab){if(!canEdit)return;if(tab)edTab=tab;closeSheet();closeSettings();if($('#ed').hidden){$('#ed').hidden=false;hpush('ed');edDirty=false}beginDraft();updateEdGo();setDraftUi();layout();renderEditor()}
+function closeEditor(fromHist){if($('#ed').hidden)return;if(draftMode&&!forceClose&&!edDirty){endDraft(false)}
+  if(draftMode&&!forceClose){if(fromHist){H.push('ed');arm()}askLeave();return}if(!fromHist&&hback('ed'))return;$('#ed').hidden=true;layout()}
 function busyHtml(){return busy?'<div class="banner" role="status"><b>'+esc(busy.label)+'</b><div class="prog"><i id="busyProg" style="width:'+Math.max(5,aiProg)+'%"></i></div>'+(busy.stoppable?'<span class="btns"><button class="btn sm ghost" data-e="stop">멈추기</button></span>':'<span style="font-size:12.5px;color:var(--muted)">보통 20초~1분 걸려요. 다른 탭을 둘러봐도 돼요.</span>')+'</div>':''}
 function renderEditor(){
   if($('#ed').hidden)return;
@@ -1175,6 +1191,7 @@ function edAction(d,el){
   switch(d.e){
     case 'tab':edTab=d.tab;edThread=null;delArm=null;armRegen=null;renderEditor();$('#edBody').scrollTop=0;break;
     case 'close':applyRestart();break;
+    case 'leave':closeEditor();break;
     case 'openSet':openSettings(d.sec);break;
     case 'opt':var sel=d.g==='fill'?fillSel:genSel;sel[d.k]=!sel[d.k];el.classList.toggle('on',sel[d.k]);el.setAttribute('aria-pressed',sel[d.k]);break;
     case 'selAll':case 'selNone':var s2=d.g==='fill'?fillSel:genSel;Object.keys(SECS).forEach(function(k){s2[k]=d.e==='selAll'});renderEditor();break;
@@ -1408,7 +1425,7 @@ var GEAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-widt
 function build(){
   $('#root').innerHTML='<div class="stage" id="stage"><div class="devwrap" id="devwrap"><div class="device" id="device"><div class="phone" id="phone" data-tone="light" data-scheme="light"><div class="sb" id="sb"></div><div class="layer" id="layer"></div><button class="hb" id="hb" aria-label="홈으로"><i></i></button><div class="ptoast" id="ptoast" role="status"></div></div></div></div><aside class="side" id="side"></aside></div>'+
     '<button class="mbtn" id="mbtn" aria-label="상황 설명과 메뉴">≡</button>'+
-    '<div class="ed" id="ed" hidden role="dialog" aria-label="폰 꾸미기"><div class="ed-head"><h2>폰 꾸미기</h2><button class="icon-btn" data-e="openSet" aria-label="설정">'+GEAR+'</button><button class="btn sm primary" data-e="close">처음부터 시작</button></div><div class="ed-note" id="edNote" hidden>지금은 대화 중이라 폰은 그대로예요. 여기서 고친 내용은 위의 [처음부터 시작]을 눌러야 반영돼요.</div><nav class="ed-tabs" id="edTabs"></nav><div class="ed-body" id="edBody"></div><div class="ed-foot"><span class="st" id="edStatus" role="status"></span><button class="btn sm" data-e="export">내보내기</button></div></div>'+
+    '<div class="ed" id="ed" hidden role="dialog" aria-label="폰 꾸미기"><div class="ed-head"><h2>폰 꾸미기</h2><button class="icon-btn" data-e="openSet" aria-label="설정">'+GEAR+'</button><button class="btn sm" id="edGo" data-e="leave">닫기</button></div><div class="ed-note" id="edNote" hidden>지금은 대화 중이라 폰은 그대로예요. 여기서 고친 내용은 위의 [처음부터 시작]을 눌러야 반영돼요.</div><nav class="ed-tabs" id="edTabs"></nav><div class="ed-body" id="edBody"></div><div class="ed-foot"><span class="st" id="edStatus" role="status"></span><button class="btn sm" data-e="export">내보내기</button></div></div>'+
     '<div class="set-bg" id="setBg" hidden></div><div class="set" id="set" hidden role="dialog" aria-label="설정"><div class="ed-head"><h2>설정</h2><button class="btn sm" data-t="close">닫기</button></div><div class="ed-body" id="setBody"></div><div class="ed-foot"><span class="st" id="setStatus" role="status"></span></div></div>'+
     '<input type="file" id="edFile" hidden>';
   layerEl=$('#layer');phoneEl=$('#phone');

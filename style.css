@@ -717,3 +717,7 @@ h3 .cnt{font-size:13px;color:var(--muted);font-weight:500}
 body.drafting #device{pointer-events:none;filter:grayscale(.5) brightness(.55)}
 
 .fs-hint{display:block;margin-top:6px}
+
+.phone input:focus,.phone input:focus-visible,.phone textarea:focus,.phone textarea:focus-visible,.phone [contenteditable]:focus{outline:none!important;box-shadow:none}
+.phone input,.phone textarea{-webkit-tap-highlight-color:transparent}
+.pbanner{touch-action:none;user-select:none;-webkit-user-select:none}
