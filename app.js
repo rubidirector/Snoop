@@ -813,7 +813,12 @@ function saveLocal(){
   S.savedAt=Date.now();
   return Lib.put(S).then(function(){savedAt=new Date();saveFail=false;updateFoot();if(Cloud.user)scheduleCloud()},function(){saveFail=true;updateFoot()});
 }
-function scheduleCloud(){clearTimeout(cloudT);cloudT=setTimeout(function(){Cloud.push(snapshot()).then(function(){cloudAt=new Date();cloudErr='';updateFoot()},function(e){cloudErr=fbMsg(e);updateFoot()})},5000)}
+var forking=false;
+function forkForAccount(){var old=S.id;if(!canEdit||viewMode||!old)return;
+  var nid=newId();return Lib.del(old).then(function(){S.id=nid;setCur(nid);if(baseThreads)Store.set('base:'+nid,{threads:baseThreads});cloudErr='';cloudAt=null;return saveLocal()})}
+function scheduleCloud(){clearTimeout(cloudT);cloudT=setTimeout(function(){var sid=S.id;Cloud.push(snapshot()).then(function(){cloudAt=new Date();cloudErr='';updateFoot()},function(e){
+  if(e&&(e.code==='permission-denied'||e.code==='not_owner')&&sid===S.id&&!forking){forking=true;var p=forkForAccount();if(p){p.then(function(){forking=false},function(){forking=false});return}forking=false}
+  cloudErr=fbMsg(e);updateFoot()})},5000)}
 function switchTo(data,opts){
   clearTimeout(storeT);
   S=normalize(JSON.parse(JSON.stringify(data)));if(!S.id)S.id=newId();baseThreads=null;loadBase();
