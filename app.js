@@ -366,8 +366,16 @@ function stripLive(th){return JSON.parse(JSON.stringify(th)).filter(function(t){
 function captureBase(){if(baseThreads)return;baseThreads=stripLive(S.threads);if(canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}
 function dropBase(){baseThreads=null;if(canEdit&&S.id)Store.del('base:'+S.id)}
 function loadBase(){baseThreads=null;if(!canEdit||!S.id)return Promise.resolve();var id=S.id;return Store.get('base:'+id).then(function(b){if(S.id===id&&!baseThreads&&b&&b.threads)baseThreads=b.threads})}
-function restartStory(keep){
-  S.threads=(!keep&&baseThreads)?JSON.parse(JSON.stringify(baseThreads)):stripLive(S.threads);
+/* edits while the phone is in use go into a draft; they reach the phone only on restart */
+var draftMode=false,playS=null,forceClose=false;
+function playing(){return !!clk()}
+function setDraftUi(){document.body.classList.toggle('drafting',draftMode);var n=$('#edNote');if(n)n.hidden=!draftMode}
+function beginDraft(){if(draftMode||!canEdit||viewMode||!playing())return;playS=S;S=JSON.parse(JSON.stringify(S));S.threads=stripLive(S.threads);draftMode=true;edThread=null;setDraftUi()}
+function endDraft(apply){if(!draftMode)return;if(!apply)S=playS;playS=null;draftMode=false;setDraftUi()}
+function applyRestart(){endDraft(true);restartStory();forceClose=true;closeEditor();forceClose=false;closeSettings();closeSheet();toast('처음부터 다시 시작했어요')}
+function askLeave(){askConfirm({title:'고친 내용을 반영할까요?',msg:'하던 대화는 그대로 남아 있어요. 고친 내용은 처음부터 다시 시작해야 폰에 반영돼요.',ok:'처음부터 다시 시작',no:'수정 버리고 닫기'},applyRestart,function(){endDraft(false);saveLocal();forceClose=true;closeEditor();forceClose=false;rebuild();renderSide()})}
+function restartStory(){
+  S.threads=stripLive(S.threads);baseThreads=null;
   drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
   resetClock();relock();
   if(canEdit)markChanged(true);
@@ -375,11 +383,11 @@ function restartStory(keep){
   renderSide();
 }
 function closeDlg(fromHist){var d=$('#dlg');if(!d)return;if(!fromHist&&hback('dlg'))return;d.remove()}
-function askConfirm(o,cb){
+function askConfirm(o,cb,cb2){
   closeDlg();var bg=document.createElement('div');bg.className='dlg-bg';bg.id='dlg';
-  bg.innerHTML='<div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlgT" aria-describedby="dlgM"><h3 id="dlgT">'+esc(o.title)+'</h3><p id="dlgM">'+esc(o.msg)+'</p><div class="btns two"><button class="btn" data-d="no">취소</button><button class="btn danger" data-d="yes">'+esc(o.ok)+'</button></div></div>';
+  bg.innerHTML='<div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlgT" aria-describedby="dlgM"><h3 id="dlgT">'+esc(o.title)+'</h3><p id="dlgM">'+esc(o.msg)+'</p><div class="btns two"><button class="btn" data-d="no">'+esc(o.no||'취소')+'</button><button class="btn danger" data-d="yes">'+esc(o.ok)+'</button></div></div>';
   document.body.appendChild(bg);hpush('dlg');
-  bg.addEventListener('click',function(e){var d=e.target.dataset&&e.target.dataset.d;if(e.target===bg||d==='no'){closeDlg()}else if(d==='yes'){closeDlg();cb()}});
+  bg.addEventListener('click',function(e){var d=e.target.dataset&&e.target.dataset.d;if(e.target===bg){closeDlg()}else if(d==='no'){closeDlg();if(cb2)cb2()}else if(d==='yes'){closeDlg();cb()}});
   var n=bg.querySelector('[data-d="no"]');if(n)n.focus();
 }
 function relock(){unlocked=false;pin='';fails=0;seen={};lastPing=Date.now();liveDated={};reset('lock',{},'fade-in');if($('#sb'))renderStatus()}
@@ -464,7 +472,7 @@ function threadFor(c,create){var hit=null;S.threads.forEach(function(t){if(!hit&
   if(!hit&&create){hit={lv:1,id:uid(),app:'talk',name:c.name,avatar:null,pinned:false,unread:0,when:'',group:false,members:[],status:'',items:[]};S.threads.push(hit)}return hit}
 function startPings(){clearInterval(pingTimer);pingTimer=setInterval(pingTick,15000)}
 function pingTick(){
-  touchSeen();var cfg=S.system.initiate;if(!cfg.on||pingBusy||viewingEditorOnly())return;
+  if(draftMode)return;touchSeen();var cfg=S.system.initiate;if(!cfg.on||pingBusy||viewingEditorOnly())return;
   var f=FREQ[cfg.freq]||FREQ.mid;if(Date.now()-lastPing<f.cool)return;
   var c=S.system.characters.filter(function(c){return c.ping>0}).sort(function(){return Math.random()-.5}).find(function(c){return Math.random()*100<c.ping*f.mult});
   if(c)doPing(c);
@@ -759,7 +767,7 @@ function sideHtml(){
   var by=viewMode&&viewInfo&&viewInfo.ownerName?' · 만든 사람 '+esc(viewInfo.ownerName):'';
   return '<div class="eyebrow">'+(viewMode?'공유받은 폰':'지금 보고 있는 폰')+'</div><h1>'+esc(sc.title||(o.name+'의 폰'))+'</h1><p class="who">'+esc(o.name)+'의 휴대전화 · 배터리 '+o.battery+'%'+by+'</p>'+
     (sc.text?'<p class="story">'+esc(sc.text)+'</p>':'')+
-    '<div class="btns two">'+(viewMode?'<button class="btn primary" data-s="copy">이 폰 복사해서 꾸미기</button>':'<button class="btn primary" data-s="edit">폰 꾸미기</button>')+'<button class="btn" data-s="relock">처음부터 다시 보기</button></div>';
+    '<div class="btns two">'+(viewMode?'<button class="btn primary" data-s="copy">이 폰 복사해서 꾸미기</button>':'<button class="btn primary" data-s="edit">폰 꾸미기</button>')+'<button class="btn" data-s="relock">처음부터 다시 시작</button></div>';
 }
 function renderSide(){var s=$('#side');if(s)s.innerHTML=sideHtml();var sh=$('#sheetIn');if(sh)sh.innerHTML='<span class="grab" aria-hidden="true"></span>'+sideHtml()}
 function openInfo(){var b=document.body.classList;if(!b.contains('full')&&!b.contains('narrow')&&!b.contains('editing'))return;
@@ -807,7 +815,7 @@ var phoneT,storeT,savedAt=null,saveFail=false,cloudT,cloudAt=null,cloudErr='';
 function markChanged(noPhone){
   if(!canEdit)return;
   clearTimeout(storeT);storeT=setTimeout(saveLocal,700);
-  if(!noPhone){clearTimeout(phoneT);phoneT=setTimeout(function(){rebuild();renderSide()},220)}
+  if(!noPhone&&!draftMode){clearTimeout(phoneT);phoneT=setTimeout(function(){rebuild();renderSide()},220)}
 }
 function saveLocal(){
   if(!canEdit)return Promise.resolve();
@@ -902,8 +910,8 @@ var armRegen=null,fillSel=null,genSel=null,busy=null,stopFlag=false,aiProg=0,pro
 var LOCK='<svg viewBox="0 0 24 24" width="13" height="13" style="display:inline-block;vertical-align:-1px;margin-right:4px" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>';
 var TABS=[['ai','✦ AI'],['basic','기본'],['chats','대화·연락처'],['photos','사진'],['rec','기록'],['sys',LOCK+'시스템']];
 function flash(msg,err){noteMsg=msg;noteErr=!!err;updateFoot();clearTimeout(noteT);noteT=setTimeout(function(){noteMsg='';updateFoot()},err?9000:6000)}
-function openEditor(tab){if(!canEdit)return;if(tab)edTab=tab;closeSheet();closeSettings();if($('#ed').hidden){$('#ed').hidden=false;hpush('ed')}layout();renderEditor()}
-function closeEditor(fromHist){if($('#ed').hidden)return;if(!fromHist&&hback('ed'))return;$('#ed').hidden=true;layout()}
+function openEditor(tab){if(!canEdit)return;if(tab)edTab=tab;closeSheet();closeSettings();if($('#ed').hidden){$('#ed').hidden=false;hpush('ed')}beginDraft();setDraftUi();layout();renderEditor()}
+function closeEditor(fromHist){if($('#ed').hidden)return;if(draftMode&&!forceClose){if(fromHist){H.push('ed');arm()}askLeave();return}if(!fromHist&&hback('ed'))return;$('#ed').hidden=true;layout()}
 function busyHtml(){return busy?'<div class="banner" role="status"><b>'+esc(busy.label)+'</b><div class="prog"><i id="busyProg" style="width:'+Math.max(5,aiProg)+'%"></i></div>'+(busy.stoppable?'<span class="btns"><button class="btn sm ghost" data-e="stop">멈추기</button></span>':'<span style="font-size:12.5px;color:var(--muted)">보통 20초~1분 걸려요. 다른 탭을 둘러봐도 돼요.</span>')+'</div>':''}
 function renderEditor(){
   if($('#ed').hidden)return;
@@ -942,7 +950,7 @@ ED.basic=function(){
       '<div class="g2">'+F('이름',inp('owner.name','이름'))+F('톡 상태메시지',inp('owner.status','(선택)'))+'</div></div>'+
     '<div class="sec"><h3>이야기</h3>'+F('제목',inp('scenario.title','(선택)'))+F('상황 소개',ta('scenario.text','(선택)',4))+
       regenBtn('scenario',(sc.title||sc.text)?1:0)+'</div>'+
-    '<div class="sec"><h3>화면</h3><div class="g3">'+F('날짜','<input type="date" data-f="owner.date" value="'+esc(o.date)+'">')+F('시각',inp('owner.time','00:46',' inputmode="numeric"'))+F('배터리 %',inp('owner.battery','42',' inputmode="numeric" data-num="1"'))+'</div>'+
+    '<div class="sec"><h3>화면</h3><div class="g3">'+F('날짜','<input type="date" data-f="owner.date" value="'+esc(o.date)+'">')+F('시각',inp('owner.time','00:46',' inputmode="numeric"'))+F('배터리 %',inp('owner.battery','42',' inputmode="numeric" data-num="1"'))+'</div><div class="row" style="margin-top:8px"><button class="btn sm" data-e="syncTimes">대화 시각 맞추기</button><small class="enote">시각은 바꿨는데 대화 시각이 그대로일 때, 대화가 원래 맞춰져 있던 시각을 알려 주면 지금 시각에 맞게 옮겨요.</small></div>'+
       '<div class="g2">'+F('잠금 비밀번호',inp('owner.pass','(선택) 숫자 4~6자리',' inputmode="numeric" data-pass="1"'))+F('비밀번호 힌트',inp('owner.hint','(선택)'))+'</div>'+
       '<div class="fl"><span>배경화면</span><div class="sw">'+Object.keys(WALLS).map(function(k){return '<button data-e="wall" data-w="'+k+'" class="'+(!o.wallImg&&o.wall===k?'on':'')+'" style="background:'+WALLS[k]+'" aria-label="배경 '+k+'"></button>'}).join('')+'</div></div>'+
       '<div class="row">'+(o.wallImg?thumb(o.wallImg):'')+'<button class="btn sm" data-e="upload" data-target="owner.wallImg" data-size="1200">사진으로 바꾸기</button>'+(o.wallImg?'<button class="btn sm ghost" data-e="clear" data-path="owner.wallImg">지우기</button>':'')+'</div></div>';
@@ -1166,7 +1174,7 @@ function generateNew(){
 function edAction(d,el){
   switch(d.e){
     case 'tab':edTab=d.tab;edThread=null;delArm=null;armRegen=null;renderEditor();$('#edBody').scrollTop=0;break;
-    case 'close':closeEditor();break;
+    case 'close':applyRestart();break;
     case 'openSet':openSettings(d.sec);break;
     case 'opt':var sel=d.g==='fill'?fillSel:genSel;sel[d.k]=!sel[d.k];el.classList.toggle('on',sel[d.k]);el.setAttribute('aria-pressed',sel[d.k]);break;
     case 'selAll':case 'selNone':var s2=d.g==='fill'?fillSel:genSel;Object.keys(SECS).forEach(function(k){s2[k]=d.e==='selAll'});renderEditor();break;
@@ -1201,6 +1209,11 @@ function edAction(d,el){
     case 'relAdd':var ra=$('#rel_a').value,rb=$('#rel_b').value,rd=$('#rel_desc').value.trim();if(ra===rb){flash('서로 다른 두 사람을 골라 주세요.',true);break}S.system.relations.push({a:ra,b:rb,desc:rd});markChanged();renderEditor();break;
     case 'relDel':S.system.relations.splice(+d.i,1);markChanged();renderEditor();break;
     case 'pingStep':(function(){var c=S.system.characters[+d.i];if(!c)return;var nv=Math.max(0,Math.min(100,Math.round((+c.ping||0)/5)*5+(+d.d)));c.ping=nv;var pi=$('#ping_'+d.i);if(pi)pi.value=nv;markChanged()})();break;
+    case 'syncTimes':(function(){var cur=str(S.owner.time),ans=window.prompt('대화 시각이 원래 맞춰져 있던 시각을 입력해 주세요.\n(예: 22:36) 지금 폰 시각 '+cur+'에 맞게 옮겨요.','');if(ans==null)return;
+      var dg=String(ans).replace(/\D/g,'');if(dg.length<3||dg.length>4){flash('시각을 22:36처럼 입력해 주세요.',true);return}
+      var h=+(dg.length===3?dg[0]:dg.slice(0,2)),m=+dg.slice(-2),c=/^(\d{1,2}):(\d{2})$/.exec(cur);if(h>23||m>59||!c){flash('시각을 22:36처럼 입력해 주세요.',true);return}
+      var delta=(+c[1]*60+(+c[2]))-(h*60+m);if(!delta){flash('이미 맞아요.');return}
+      shiftAllTimes(delta);markChanged();var ee=$('#ed');if(ee&&!ee.hidden&&edThread)renderCpv();flash('대화 시각을 '+(delta>0?'+':'')+delta+'분 옮겼어요.')})();break;
     case 'pingFreq':S.system.initiate.freq=d.v;markChanged(true);renderEditor();break;
     case 'pingTest':var pool=S.system.characters.filter(function(c){return c.ping>0});if(!pool.length)pool=S.system.characters.filter(function(c){return threadFor(c)});if(!pool.length){flash('먼저 등장인물을 추가해 주세요.',true);break}
       var pc=pool[Math.floor(Math.random()*pool.length)];if(document.body.classList.contains('full')||document.body.classList.contains('narrow'))closeEditor();pingBusy=false;doPing(pc);flash(pc.name+'이(가) 연락하는 중이에요.');break;
@@ -1320,7 +1333,7 @@ function renderSettings(){
     '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
     '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
     '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>';
-  h+='<div class="sec" id="set_restart"><h3>다시 시작</h3><p class="enote"><b>수정한 상태로 다시 시작</b>은 내가 고친 내용(시각, 대화 수정 등)은 그대로 두고, 폰을 열어 나눈 대화와 새로 도착한 메시지만 지워요.<br><b>처음부터 다시 시작</b>은 처음 잠금을 풀었던 때의 대화 상태로 되돌려요. 그 뒤에 대화를 고쳤다면 그 수정도 사라져요.</p><div class="row"><button class="btn" data-t="restartKeep">수정한 상태로 다시 시작</button><button class="btn danger" data-t="restart">처음부터 다시 시작</button></div></div>';
+  h+='<div class="sec" id="set_restart"><h3>처음부터 다시 시작</h3><p class="enote">폰을 열어 나눈 대화와 새로 도착한 메시지를 지우고 시계를 처음부터 다시 흘려요. 폰 꾸미기에서 고친 내용은 이때 폰에 반영돼요.</p><div class="row"><button class="btn danger" data-t="restart">처음부터 다시 시작</button></div></div>';
   // theme
   h+='<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>';
   // danger
@@ -1335,8 +1348,7 @@ function setAction(d,el){
     case 'close':closeSettings();break;
     case 'sysNotif':if(!('Notification' in window)){flashSet('이 브라우저는 시스템 알림을 지원하지 않아요.',true);break}Notification.requestPermission().then(function(r){renderSettings();flashSet(r==='granted'?'시스템 알림을 켰어요.':'알림이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.',r!=='granted')});break;
     case 'testNotif':playDing(true);var tt=S.threads[0];if(tt&&sysNotifyOk()&&document.hidden)systemNotify(tt,'알림 미리 듣기');else if(tt)showBanner(tt,'알림이 이렇게 보여요');break;
-    case 'restartKeep':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'수정한 상태로 다시 시작할까요?',msg:'폰을 열어 보내고 받은 메시지가 지워지고 시계가 처음부터 다시 흘러가요. 내가 고친 내용은 그대로 남아요.',ok:'다시 시작'},function(){restartStory(true);closeSettings();toast('수정한 상태로 다시 시작했어요')});break;
-    case 'restart':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 처음 잠금을 풀었던 때의 대화 상태로 돌아가고, 그 뒤에 고친 대화 수정도 사라져요. 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){restartStory();closeSettings();toast('처음부터 다시 시작했어요')});break;
+    case 'restart':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 폰 꾸미기에서 고친 내용은 그대로 반영되고, 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){applyRestart()});break;
     case 'login':Cloud.err='';Cloud.signIn().then(function(){renderSettings()},function(e){Cloud.err=fbMsg(e);renderSettings()});break;
     case 'logout':Cloud.signOut();break;
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
@@ -1390,7 +1402,7 @@ var GEAR='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-widt
 function build(){
   $('#root').innerHTML='<div class="stage" id="stage"><div class="devwrap" id="devwrap"><div class="device" id="device"><div class="phone" id="phone" data-tone="light" data-scheme="light"><div class="sb" id="sb"></div><div class="layer" id="layer"></div><button class="hb" id="hb" aria-label="홈으로"><i></i></button><div class="ptoast" id="ptoast" role="status"></div></div></div></div><aside class="side" id="side"></aside></div>'+
     '<button class="mbtn" id="mbtn" aria-label="상황 설명과 메뉴">≡</button>'+
-    '<div class="ed" id="ed" hidden role="dialog" aria-label="폰 꾸미기"><div class="ed-head"><h2>폰 꾸미기</h2><button class="icon-btn" data-e="openSet" aria-label="설정">'+GEAR+'</button><button class="btn sm" data-e="close">미리보기</button></div><nav class="ed-tabs" id="edTabs"></nav><div class="ed-body" id="edBody"></div><div class="ed-foot"><span class="st" id="edStatus" role="status"></span><button class="btn sm" data-e="export">내보내기</button></div></div>'+
+    '<div class="ed" id="ed" hidden role="dialog" aria-label="폰 꾸미기"><div class="ed-head"><h2>폰 꾸미기</h2><button class="icon-btn" data-e="openSet" aria-label="설정">'+GEAR+'</button><button class="btn sm primary" data-e="close">처음부터 시작</button></div><div class="ed-note" id="edNote" hidden>지금은 대화 중이라 폰은 그대로예요. 여기서 고친 내용은 위의 [처음부터 시작]을 눌러야 반영돼요.</div><nav class="ed-tabs" id="edTabs"></nav><div class="ed-body" id="edBody"></div><div class="ed-foot"><span class="st" id="edStatus" role="status"></span><button class="btn sm" data-e="export">내보내기</button></div></div>'+
     '<div class="set-bg" id="setBg" hidden></div><div class="set" id="set" hidden role="dialog" aria-label="설정"><div class="ed-head"><h2>설정</h2><button class="btn sm" data-t="close">닫기</button></div><div class="ed-body" id="setBody"></div><div class="ed-foot"><span class="st" id="setStatus" role="status"></span></div></div>'+
     '<input type="file" id="edFile" hidden>';
   layerEl=$('#layer');phoneEl=$('#phone');
@@ -1399,7 +1411,7 @@ function build(){
   $('#hb').addEventListener('click',function(){if(!unlocked){if(top().s==='lock')unlockFlow();return}goHome()});
   $('#mbtn').addEventListener('click',openInfo);
   document.addEventListener('click',function(e){var s=e.target.closest('[data-s]');if(!s)return;var k=s.dataset.s;
-    if(k==='edit')openEditor('basic');else if(k==='ai')openEditor('ai');else if(k==='settings')openSettings();else if(k==='relock'){closeSheet();relock()}else if(k==='closeSheet')closeSheet();
+    if(k==='edit')openEditor('basic');else if(k==='ai')openEditor('ai');else if(k==='settings')openSettings();else if(k==='relock'){closeSheet();if(viewMode)relock();else{restartStory();toast('처음부터 다시 시작했어요')}}else if(k==='closeSheet')closeSheet();
     else if(k==='copy'){var d=snapshot(),own=viewInfo&&Cloud.user&&viewInfo.owner===Cloud.user.uid;d.id=own?S.id:newId();if(!own){d.system={};d.scenario.cast=''}Lib.load().then(function(){return Lib.put(normalize(d))}).then(function(){setCur(d.id);location.href=location.pathname})}});
   var ed=$('#ed');ed.addEventListener('click',function(e){var b=e.target.closest('[data-e]');if(b&&ed.contains(b)&&!b.disabled)edAction(b.dataset,b)});
   ed.addEventListener('input',onEdInput);ed.addEventListener('change',function(e){if(e.target.type==='date'||e.target.tagName==='SELECT'||e.target.type==='checkbox'||e.target.dataset.ping||e.target.dataset.f==='owner.time')onEdInput(e)});

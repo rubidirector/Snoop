@@ -717,3 +717,6 @@ h3 .cnt{font-size:13px;color:var(--muted);font-weight:500}
 body.full{--sb:calc(env(safe-area-inset-top,0px) + 10px)}
 body.full .sb-time,body.full .sb-ic{display:none}
 body.full .island{background:transparent}
+
+.ed-note{margin:0 18px 8px;padding:9px 12px;border-radius:12px;background:var(--accent-soft,rgba(255,170,60,.14));color:var(--text);font-size:13px;line-height:1.45}
+body.drafting #device{pointer-events:none;filter:grayscale(.5) brightness(.55)}
