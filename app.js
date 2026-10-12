@@ -1232,7 +1232,7 @@ function shiftAllTimes(delta){if(!delta)return;
 function fixTimeField(e,el){
   var dg=String(el.value).replace(/\D/g,'').slice(0,4),del=/^delete/.test(e.inputType||'');
   var out=dg.length>=3?(dg.length===3?dg[0]:dg.slice(0,2))+':'+dg.slice(dg.length===3?1:2):(dg.length===2&&!del&&e.type==='input'?dg+':':dg);
-  if(e.type!=='change'){el.value=out;return}
+  if(e.type!=='change'&&dg.length<4){el.value=out;return}
   var m=/^(\d{1,2}):(\d{2})$/.exec(out);
   if(!m){el.value=S.owner.time;return}
   var H=Math.min(23,+m[1]),M=Math.min(59,+m[2]),nv=String(H).padStart(2,'0')+':'+String(M).padStart(2,'0');el.value=nv;
@@ -1335,8 +1335,8 @@ function setAction(d,el){
     case 'close':closeSettings();break;
     case 'sysNotif':if(!('Notification' in window)){flashSet('이 브라우저는 시스템 알림을 지원하지 않아요.',true);break}Notification.requestPermission().then(function(r){renderSettings();flashSet(r==='granted'?'시스템 알림을 켰어요.':'알림이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.',r!=='granted')});break;
     case 'testNotif':playDing(true);var tt=S.threads[0];if(tt&&sysNotifyOk()&&document.hidden)systemNotify(tt,'알림 미리 듣기');else if(tt)showBanner(tt,'알림이 이렇게 보여요');break;
-    case 'restartKeep':askConfirm({title:'수정한 상태로 다시 시작할까요?',msg:'폰을 열어 보내고 받은 메시지가 지워지고 시계가 처음부터 다시 흘러가요. 내가 고친 내용은 그대로 남아요.',ok:'다시 시작'},function(){restartStory(true);closeSettings();toast('수정한 상태로 다시 시작했어요')});break;
-    case 'restart':askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 처음 잠금을 풀었던 때의 대화 상태로 돌아가고, 그 뒤에 고친 대화 수정도 사라져요. 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){restartStory();closeSettings();toast('처음부터 다시 시작했어요')});break;
+    case 'restartKeep':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'수정한 상태로 다시 시작할까요?',msg:'폰을 열어 보내고 받은 메시지가 지워지고 시계가 처음부터 다시 흘러가요. 내가 고친 내용은 그대로 남아요.',ok:'다시 시작'},function(){restartStory(true);closeSettings();toast('수정한 상태로 다시 시작했어요')});break;
+    case 'restart':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 처음 잠금을 풀었던 때의 대화 상태로 돌아가고, 그 뒤에 고친 대화 수정도 사라져요. 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){restartStory();closeSettings();toast('처음부터 다시 시작했어요')});break;
     case 'login':Cloud.err='';Cloud.signIn().then(function(){renderSettings()},function(e){Cloud.err=fbMsg(e);renderSettings()});break;
     case 'logout':Cloud.signOut();break;
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
