@@ -21,7 +21,14 @@ window.PHONE_CONFIG = {
   // 비워 두면(null) 만든 폰이 각자 기기에만 저장되고, 공유는 파일 내보내기로만 돼요.
   // Firebase 콘솔 › 프로젝트 설정 › 내 앱(웹)에 보이는 firebaseConfig 값을 그대로 붙여 넣으세요.
   // 이 값들은 공개돼도 괜찮아요. 데이터 보호는 firestore.rules가 맡아요.
-  firebase: null,
+  firebase: {
+    apiKey: 'AIzaSyD2lwhA9swTBUoSoTDYephLli-u0U5W6mY',
+    authDomain: 'snoop-97d45.firebaseapp.com',
+    projectId: 'snoop-97d45',
+    storageBucket: 'snoop-97d45.firebasestorage.app',
+    messagingSenderId: '344878971352',
+    appId: '1:344878971352:web:1d37ac23c10a53523d1aad'
+  },
   // firebase: {
   //   apiKey: 'AIza...',
   //   authDomain: '내프로젝트.firebaseapp.com',
