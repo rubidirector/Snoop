@@ -590,7 +590,7 @@ function gemini(model,body){
   return fetch(url,{method:'POST',headers:headers,body:JSON.stringify(payload)}).then(function(r){
     return r.json().catch(function(){return {}}).then(function(j){
       if(!r.ok){var m=String((j&&j.error&&(j.error.message||j.error))||('HTTP '+r.status));
-        throw {code:r.status===429?'rate_limited':(r.status===401||r.status===403||/api key|api_key/i.test(m))?'bad_key':r.status===404?'no_model':'http',message:m}}
+        throw {code:(r.status===503||r.status===500||r.status===504||/high demand|overloaded|UNAVAILABLE/i.test(m))?'busy':r.status===429?'rate_limited':(r.status===401||r.status===403||/api key|api_key/i.test(m))?'bad_key':r.status===404?'no_model':'http',message:m}}
       return j})
   },function(){throw {code:'network'}});
 }
@@ -607,7 +607,16 @@ function parseJSONLoose(t){
 }
 var AI={
   text:function(prompt,json){var gc={temperature:1};if(json)gc.responseMimeType='application/json';
-    return gemini(textModel(),{contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:gc}).then(function(j){
+    var body={contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:gc};
+    var ms=[CFG.textModel].concat((CFG.textModels||[]).filter(function(m){return m!==CFG.textModel}));
+    var slow=function(n){return new Promise(function(r){setTimeout(r,n)})};
+    function run(i,tries){return gemini(ms[i],body).catch(function(e){
+      var soft=e&&(e.code==='busy'||e.code==='rate_limited'||e.code==='no_model');
+      if(!soft)throw e;
+      if(e.code!=='no_model'&&tries<1)return slow(1200).then(function(){return run(i,tries+1)});
+      if(i+1<ms.length)return run(i+1,0);
+      throw e})}
+    return run(0,0).then(function(j){
       var t=partsOf(j).filter(function(p){return p.text&&!p.thought}).map(function(p){return p.text}).join('');if(!t.trim())throw {code:'empty'};return t})},
   json:function(prompt){return AI.text(prompt,true).then(parseJSONLoose)},
   image:function(prompt){return gemini(imageModel(),{contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}}).then(function(j){
@@ -615,8 +624,8 @@ var AI={
     throw {code:'no_image'}})}
 };
 function aiErrMsg(err){var c=err&&err.code;
-  return {no_ai:'설정 › AI · API 관리에서 Gemini 키를 넣어 주세요.',bad_key:'API 키가 맞지 않거나 이 모델을 쓸 권한이 없어요.',rate_limited:'무료 사용 한도에 걸렸어요. 1~2분 뒤에 다시 해 주세요.',
-    no_model:'모델 이름을 찾을 수 없어요. AI 연결에서 모델을 바꿔 보세요.',network:'인터넷 연결이나 서버 주소를 확인해 주세요.',blocked:'안전 필터에 걸렸어요. 표현을 조금 바꿔 보세요.',
+  return {no_ai:'설정 › AI · API 관리에서 Gemini 키를 넣어 주세요.',bad_key:'API 키가 맞지 않거나 이 모델을 쓸 권한이 없어요.',busy:'지금 Gemini에 사용자가 몰려 있어요. 키는 정상이니 잠시 뒤 다시 눌러 주세요.',rate_limited:'무료 사용 한도에 걸렸어요. 1~2분 뒤에 다시 해 주세요.',
+    no_model:'사용할 수 있는 Gemini 모델을 찾지 못했어요. config.js의 모델 이름을 확인해 주세요.',network:'인터넷 연결이나 서버 주소를 확인해 주세요.',blocked:'안전 필터에 걸렸어요. 표현을 조금 바꿔 보세요.',
     parse:'결과 형식이 깨졌어요. 한 번 더 눌러 주세요.',empty:'빈 답이 왔어요. 한 번 더 눌러 주세요.',no_image:'이미지가 오지 않았어요. 이미지 모델 이름과 결제 설정을 확인해 주세요.'}[c]
     ||('만들지 못했어요'+(err&&err.message?' ('+String(err.message).slice(0,140)+')':'')+'.')}
 
