@@ -1,0 +1,27 @@
+rules_version = '2';
+// Firebase 콘솔 › Firestore Database › 규칙 탭에 이 내용을 그대로 붙여 넣고 [게시]를 누르세요.
+// - 내가 만든 폰은 나만 쓰고 지울 수 있어요.
+// - 공유(public)를 켠 폰만 다른 사람이 볼 수 있어요.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function story(sid) { return get(/databases/$(database)/documents/stories/$(sid)).data; }
+
+    match /stories/{sid} {
+      allow read: if resource == null
+                  || resource.data.public == true
+                  || (signedIn() && resource.data.owner == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow update: if signedIn()
+                    && resource.data.owner == request.auth.uid
+                    && request.resource.data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+
+      match /images/{iid} {
+        allow read: if story(sid).public == true
+                    || (signedIn() && story(sid).owner == request.auth.uid);
+        allow write: if signedIn() && story(sid).owner == request.auth.uid;
+      }
+    }
+  }
+}
