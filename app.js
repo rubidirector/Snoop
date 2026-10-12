@@ -15,7 +15,7 @@ function hash(s){var h=0;s=str(s);for(var i=0;i<s.length;i++)h=(h*31+s.charCodeA
 function normPh(ph){ph=ph||{};var c=arr(ph.c).filter(isHex).slice(0,3);return {c:c,l:str(ph.l)}}
 function normItem(it){
   if(!it||typeof it!=='object')return null;
-  if(it.k==='date')return {k:'date',v:str(it.v)};
+  if(it.k==='date'){var dd={k:'date',v:str(it.v)};if(it.lv)dd.lv=1;return dd}
   var k=['text','photo','voice'].indexOf(it.k)>=0?it.k:'text';
   var o={w:it.w==='me'?'me':'them',k:k};
   if(k==='text')o.v=str(it.v);
@@ -23,6 +23,7 @@ function normItem(it){
   if(k==='voice')o.dur=str(it.dur)||'0:05';
   if(it.n)o.n=str(it.n);
   if(it.t)o.t=str(it.t);
+  if(it.lv)o.lv=1;
   return o;
 }
 function normalize(s){
@@ -33,7 +34,7 @@ function normalize(s){
   var sc=s.scenario||{};s.scenario={title:str(sc.title),text:str(sc.text),cast:str(sc.cast)};
   s.threads=arr(s.threads).filter(function(t){return t&&typeof t==='object'}).map(function(t){return {id:str(t.id)||uid(),app:t.app==='talk'?'talk':'msg',name:str(t.name)||'이름 없음',avatar:t.avatar||null,pinned:!!t.pinned,
     unread:Math.max(0,parseInt(t.unread,10)||0),when:str(t.when),group:!!t.group,members:arr(t.members).map(str).filter(Boolean),status:str(t.status),
-    items:arr(t.items).map(normItem).filter(Boolean)}});
+    items:arr(t.items).map(normItem).filter(Boolean),lv:t.lv?1:undefined}});
   s.friends=arr(s.friends).map(function(f){return {name:str(f&&f.name),status:str(f&&f.status)}}).filter(function(f){return f.name});
   s.gallery=arr(s.gallery).filter(Boolean).map(function(g){return {id:str(g.id)||uid(),img:g.img||null,ph:normPh(g.ph),date:str(g.date),fav:!!g.fav}});
   s.search=arr(s.search).map(str).filter(Boolean);
@@ -361,11 +362,12 @@ function rebuild(){
 function goHome(){if(!unlocked)return;if(nav.length===1&&top().s==='home')return;reset('home',{},'fade-in')}
 /* restart: the first unlock remembers every chat as it was; "restart" puts them back and drops what happened while playing */
 var baseThreads=null;
-function captureBase(){if(baseThreads)return;baseThreads=JSON.parse(JSON.stringify(S.threads));if(canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}
+function stripLive(th){return JSON.parse(JSON.stringify(th)).filter(function(t){return !t.lv}).map(function(t){t.items=t.items.filter(function(i){return !i.lv});return t})}
+function captureBase(){if(baseThreads)return;baseThreads=stripLive(S.threads);if(canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}
 function dropBase(){baseThreads=null;if(canEdit&&S.id)Store.del('base:'+S.id)}
 function loadBase(){baseThreads=null;if(!canEdit||!S.id)return Promise.resolve();var id=S.id;return Store.get('base:'+id).then(function(b){if(S.id===id&&!baseThreads&&b&&b.threads)baseThreads=b.threads})}
 function restartStory(){
-  if(baseThreads)S.threads=JSON.parse(JSON.stringify(baseThreads));
+  S.threads=baseThreads?JSON.parse(JSON.stringify(baseThreads)):stripLive(S.threads);
   drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
   resetClock();relock();
   if(canEdit)markChanged(true);
@@ -403,7 +405,7 @@ var A={
   ttab:function(d){top().p.tab=d.tab;repaintTop()},
   tprof:function(d){push('tprof',d.me?{me:1}:{name:d.name})},
   tprofchat:function(d){var t=null;S.threads.forEach(function(x){if(x.app==='talk'&&!x.group&&x.name===d.name)t=x});
-    if(!t){t={id:uid(),app:'talk',name:d.name,avatar:null,pinned:false,unread:0,when:'',group:false,members:[],status:'',items:[]};S.threads.push(t)}
+    if(!t){t={lv:1,id:uid(),app:'talk',name:d.name,avatar:null,pinned:false,unread:0,when:'',group:false,members:[],status:'',items:[]};S.threads.push(t)}
     nav.pop().el.remove();top().el.classList.remove('under');seen[t.id]=1;push('tchat',{id:t.id},null,true)},
   nocall:function(){toast('지금은 전화를 걸 수 없어요')},
   calltab:function(d){if(d.tab==='keypad'){toast('키패드는 잠겨 있어요');return}top().p.tab=d.tab;repaintTop()},
@@ -445,21 +447,21 @@ function addLiveSep(t){
   for(var i=t.items.length-1;i>=0;i--){var it=t.items[i];if(it.k==='date'){lastDay=sepDay(it.v);if(!lastT)lastT=sepTime(it.v);break}if(!lastT&&it.t)lastT=to24(it.t)}
   var need=lastDay!==k;
   if(!need&&t.app==='msg'&&lastT){var m=/^(\d{2}):(\d{2})$/.exec(lastT);if(m){var gap=d.getHours()*60+d.getMinutes()-(+m[1]*60+(+m[2]));if(gap>60||gap<0)need=true}}
-  if(need)t.items.push({k:'date',v:t.app==='talk'?d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일':d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+hhmm(d)});
+  if(need)t.items.push({k:'date',lv:1,v:t.app==='talk'?d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일':d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+hhmm(d)});
 }
 function sep24(v){return str(v).replace(/(오전|오후)\s*(\d{1,2}):(\d{2})/g,function(x){return to24(x)})}
 function sendLive(){
   var inp=$('#chatIn',top().el);if(!inp)return;var v=inp.value.trim();if(!v)return;var t=thr(inp.dataset.tid);if(!t)return;
   startClock();
   addLiveSep(t);if(false){var d=phoneNow();t.items.push({k:'date',v:t.app==='talk'?d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일':'오늘 '+nowLabel()});liveDated[t.id]=1}
-  t.items.push({w:'me',k:'text',v:v,t:nowLabel()});t.when=nowLabel();inp.value='';drafts[t.id]='';inp.dispatchEvent(new Event('input'));
+  t.items.push({w:'me',k:'text',lv:1,v:v,t:nowLabel()});t.when=nowLabel();inp.value='';drafts[t.id]='';inp.dispatchEvent(new Event('input'));
   refreshChat(t);markChanged(true);aiReply(t);
 }
 var FREQ={low:{cool:300000,mult:.2,label:'드물게'},mid:{cool:120000,mult:.35,label:'보통'},high:{cool:45000,mult:.7,label:'자주'}};
 var pingTimer=null,lastPing=0,pingBusy=false,pingCount=0;
 var OPENERS=['자?','뭐 해','갑자기 생각나서','아까 말 못 한 게 있는데','지금 잠깐 통화 돼?','...','괜찮아?'];
 function threadFor(c,create){var hit=null;S.threads.forEach(function(t){if(!hit&&!t.group&&t.name===c.name)hit=t});
-  if(!hit&&create){hit={id:uid(),app:'talk',name:c.name,avatar:null,pinned:false,unread:0,when:'',group:false,members:[],status:'',items:[]};S.threads.push(hit)}return hit}
+  if(!hit&&create){hit={lv:1,id:uid(),app:'talk',name:c.name,avatar:null,pinned:false,unread:0,when:'',group:false,members:[],status:'',items:[]};S.threads.push(hit)}return hit}
 function startPings(){clearInterval(pingTimer);pingTimer=setInterval(pingTick,15000)}
 function pingTick(){
   touchSeen();var cfg=S.system.initiate;if(!cfg.on||pingBusy||viewingEditorOnly())return;
@@ -517,7 +519,7 @@ function doPing(c,at){
   return gen.then(function(msgs){
     if(!msgs.length)msgs=[OPENERS[Math.floor(Math.random()*OPENERS.length)]];
     typingFor[t.id]=0;tOverride=at||0;
-    try{addLiveSep(t);msgs.forEach(function(v){t.items.push({w:'them',k:'text',v:v,t:nowLabel()})});t.when=nowLabel()}finally{tOverride=0}
+    try{addLiveSep(t);msgs.forEach(function(v){t.items.push({w:'them',k:'text',lv:1,v:v,t:nowLabel()})});t.when=nowLabel()}finally{tOverride=0}
     t._ping=Date.now();
     var watching=inThread(t)&&!document.hidden&&!at;
     if(watching){seen[t.id]=1;t.unread=0;refreshChat(t)}
@@ -557,7 +559,7 @@ function aiReply(t){
     var i=0;(function next(){if(i>=out.length){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);markChanged(true);
       if(out.length&&(!inThread(t)||document.hidden)){delete seen[t.id];t.unread=maxUnread(t);var e2=top();if(e2&&['lock','home','msgs','talk'].indexOf(e2.s)>=0)repaintTop(true);notify(t,str(out[out.length-1].v))}return}
       var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group)it.n=str(x.n)||t.members[0]||'?';
-      t.items.push(it);t.when=nowLabel();refreshChat(t);setTimeout(next,650+Math.min(1400,it.v.length*45))})();
+      it.lv=1;t.items.push(it);t.when=nowLabel();refreshChat(t);setTimeout(next,650+Math.min(1400,it.v.length*45))})();
   }).catch(function(err){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(err&&err.code==='rate_limited'?'답장이 잠시 늦어지고 있어요':'답장을 받지 못했어요')});
 }
 function playVoice(el){
