@@ -366,8 +366,8 @@ function stripLive(th){return JSON.parse(JSON.stringify(th)).filter(function(t){
 function captureBase(){if(baseThreads)return;baseThreads=stripLive(S.threads);if(canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}
 function dropBase(){baseThreads=null;if(canEdit&&S.id)Store.del('base:'+S.id)}
 function loadBase(){baseThreads=null;if(!canEdit||!S.id)return Promise.resolve();var id=S.id;return Store.get('base:'+id).then(function(b){if(S.id===id&&!baseThreads&&b&&b.threads)baseThreads=b.threads})}
-function restartStory(){
-  S.threads=baseThreads?JSON.parse(JSON.stringify(baseThreads)):stripLive(S.threads);
+function restartStory(keep){
+  S.threads=(!keep&&baseThreads)?JSON.parse(JSON.stringify(baseThreads)):stripLive(S.threads);
   drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
   resetClock();relock();
   if(canEdit)markChanged(true);
@@ -806,7 +806,6 @@ function getCur(){try{return localStorage.getItem('phone-cur')}catch(e){return n
 var phoneT,storeT,savedAt=null,saveFail=false,cloudT,cloudAt=null,cloudErr='';
 function markChanged(noPhone){
   if(!canEdit)return;
-  if(!noPhone&&baseThreads)dropBase();
   clearTimeout(storeT);storeT=setTimeout(saveLocal,700);
   if(!noPhone){clearTimeout(phoneT);phoneT=setTimeout(function(){rebuild();renderSide()},220)}
 }
@@ -1225,9 +1224,10 @@ function shiftClock(str0,delta){
     if(ap){var t=((mins12(ap,h,m)+delta)%1440+1440)%1440,H=Math.floor(t/60);return (H>=12?'오후':'오전')+' '+(H%12||12)+':'+String(t%60).padStart(2,'0')}
     var t2=((+h*60+(+m)+delta)%1440+1440)%1440;return sp+String(Math.floor(t2/60)).padStart(2,'0')+':'+String(t2%60).padStart(2,'0')})}
 function shiftAllTimes(delta){if(!delta)return;
-  S.threads.forEach(function(t){
+  [S.threads,baseThreads||[]].forEach(function(L){L.forEach(function(t){
     if(/^(오전|오후)\s*\d{1,2}:\d{2}$|^\d{1,2}:\d{2}$/.test(str(t.when).trim()))t.when=shiftClock(t.when,delta);
-    t.items.forEach(function(it){if(it.t)it.t=shiftClock(it.t,delta);if(it.k==='date'&&t.app==='msg'&&/\d{1,2}:\d{2}/.test(it.v))it.v=shiftClock(it.v,delta)})});
+    t.items.forEach(function(it){if(it.t)it.t=shiftClock(it.t,delta);if(it.k==='date'&&t.app==='msg'&&/\d{1,2}:\d{2}/.test(it.v))it.v=shiftClock(it.v,delta)})})});
+  if(baseThreads&&canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads});
   S.calls.forEach(function(c){if(c.time)c.time=shiftClock(c.time,delta)})}
 function fixTimeField(e,el){
   var dg=String(el.value).replace(/\D/g,'').slice(0,4),del=/^delete/.test(e.inputType||'');
@@ -1320,7 +1320,7 @@ function renderSettings(){
     '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
     '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
     '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>';
-  h+='<div class="sec" id="set_restart"><h3>처음부터 다시 시작</h3><p class="enote">폰을 열어 나눈 대화와 새로 도착한 메시지를 모두 지우고, 꾸며 둔 처음 상태로 되돌려요. 폰 내용을 수정한 뒤 새로 시작하고 싶을 때 쓰세요.</p><div class="row"><button class="btn danger" data-t="restart">처음부터 다시 시작</button></div></div>';
+  h+='<div class="sec" id="set_restart"><h3>다시 시작</h3><p class="enote"><b>수정한 상태로 다시 시작</b>은 내가 고친 내용(시각, 대화 수정 등)은 그대로 두고, 폰을 열어 나눈 대화와 새로 도착한 메시지만 지워요.<br><b>처음부터 다시 시작</b>은 처음 잠금을 풀었던 때의 대화 상태로 되돌려요. 그 뒤에 대화를 고쳤다면 그 수정도 사라져요.</p><div class="row"><button class="btn" data-t="restartKeep">수정한 상태로 다시 시작</button><button class="btn danger" data-t="restart">처음부터 다시 시작</button></div></div>';
   // theme
   h+='<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>';
   // danger
@@ -1335,7 +1335,8 @@ function setAction(d,el){
     case 'close':closeSettings();break;
     case 'sysNotif':if(!('Notification' in window)){flashSet('이 브라우저는 시스템 알림을 지원하지 않아요.',true);break}Notification.requestPermission().then(function(r){renderSettings();flashSet(r==='granted'?'시스템 알림을 켰어요.':'알림이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.',r!=='granted')});break;
     case 'testNotif':playDing(true);var tt=S.threads[0];if(tt&&sysNotifyOk()&&document.hidden)systemNotify(tt,'알림 미리 듣기');else if(tt)showBanner(tt,'알림이 이렇게 보여요');break;
-    case 'restart':askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 폰을 열어 보내고 받은 메시지가 지워지고 처음 상태로 돌아가며, 되돌릴 수 없어요. 꾸며 둔 폰 내용은 그대로 남아요.',ok:'모두 지우고 시작'},function(){restartStory();closeSettings();toast('처음부터 다시 시작했어요')});break;
+    case 'restartKeep':askConfirm({title:'수정한 상태로 다시 시작할까요?',msg:'폰을 열어 보내고 받은 메시지가 지워지고 시계가 처음부터 다시 흘러가요. 내가 고친 내용은 그대로 남아요.',ok:'다시 시작'},function(){restartStory(true);closeSettings();toast('수정한 상태로 다시 시작했어요')});break;
+    case 'restart':askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 처음 잠금을 풀었던 때의 대화 상태로 돌아가고, 그 뒤에 고친 대화 수정도 사라져요. 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){restartStory();closeSettings();toast('처음부터 다시 시작했어요')});break;
     case 'login':Cloud.err='';Cloud.signIn().then(function(){renderSettings()},function(e){Cloud.err=fbMsg(e);renderSettings()});break;
     case 'logout':Cloud.signOut();break;
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
@@ -1415,7 +1416,7 @@ function build(){
     navigator.serviceWorker.register('sw.js').then(function(r){swReg=r},function(){})}}catch(e){}
   document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if($('#dlg')){closeDlg();return}if($('#sheet')){closeSheet();return}if(!$('#set').hidden){closeSettings();return}var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'))return;if(!$('#ed').hidden&&$('#ed').contains(tg))return;if(unlocked)A.back()});
 }
-function startPhone(){loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('위쪽 검은 섬을 누르면 상황 설명이 나와요')},900)}
+function startPhone(){loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('화면 맨 위 가운데를 누르면 상황 설명이 나와요')},900)}
 function boot(){
   build();applyTheme();
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
