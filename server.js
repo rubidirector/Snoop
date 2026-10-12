@@ -29,8 +29,8 @@ const WINDOW = 10 * 60 * 1000;
 const hits = new Map();
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp' };
-const PUBLIC = /^\/(index\.html|style\.css|app\.js|config\.js|example-data\.js|stories\/[\w-]+\.json|favicon\.ico)$/;
+  '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp', '.webmanifest': 'application/manifest+json; charset=utf-8' };
+const PUBLIC = /^\/(index\.html|style\.css|app\.js|config\.js|example-data\.js|sw\.js|manifest\.webmanifest|icon-(?:192|512)\.png|stories\/[\w-]+\.json|favicon\.ico)$/;
 
 function send(res, code, body, type) {
   res.writeHead(code, { 'Content-Type': type || 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });

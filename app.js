@@ -116,14 +116,18 @@ var APPI={
 var DOW=['일','월','화','수','목','금','토'];
 function parseD(s){var m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s||'');return m?new Date(+m[1],+m[2]-1,+m[3]):new Date()}
 function fmtD(s){var m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s||'');return m?m[1]+'년 '+(+m[2])+'월 '+(+m[3])+'일':s}
-var clockStart=null,clockTimer=null;
+var clockTimer=null,clkId=null,clkVal=null,tOverride=0;
+// The story's clock starts the first time the phone is opened and keeps running by the real clock, even while the page is closed.
+function runKey(){return 'phone-run:'+(S&&S.id?S.id:(location.search||'view'))}
+function readRun(){try{var v=parseInt(localStorage.getItem(runKey()),10);return v>0?v:null}catch(e){return null}}
+function clk(){var id=runKey();if(clkId!==id){clkId=id;clkVal=readRun();if(clkVal&&!clockTimer)clockTimer=setInterval(tickClock,5000)}return clkVal}
 function phoneBase(){var d=parseD(S.owner.date),m=/^(\d{1,2}):(\d{2})$/.exec(str(S.owner.time))||[0,0,0];d.setHours(+m[1],+m[2],0,0);return d}
-function phoneNow(){var b=phoneBase();return clockStart?new Date(b.getTime()+(Date.now()-clockStart)):b}
+function phoneNow(){var b=phoneBase(),c=clk();return c?new Date(b.getTime()+((tOverride||Date.now())-c)):b}
 function hhmm(d){return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
 function nowLabel(){return hhmm(phoneNow())}
-function phoneTime(){return clockStart?hhmm(phoneNow()):to24(S.owner.time)}
-function startClock(){if(clockStart)return;clockStart=Date.now();clearInterval(clockTimer);clockTimer=setInterval(tickClock,5000)}
-function stopClock(){clockStart=null;clearInterval(clockTimer);clockTimer=null}
+function phoneTime(){return clk()?hhmm(phoneNow()):to24(S.owner.time)}
+function startClock(){if(clk())return;clkVal=Date.now();clkId=runKey();try{localStorage.setItem(clkId,String(clkVal))}catch(e){}clearInterval(clockTimer);clockTimer=setInterval(tickClock,5000)}
+function resetClock(){clk();clkVal=null;try{localStorage.removeItem(runKey());localStorage.removeItem('phone-seen:'+(S.id||''))}catch(e){}clearInterval(clockTimer);clockTimer=null}
 function tickClock(){var v=phoneTime();var a=document.querySelector('.sb-time');if(a&&a.textContent!==v)a.textContent=v;var l=document.querySelector('.lk-time');if(l&&l.textContent!==v)l.textContent=v}
 function to24(x){x=str(x).trim();var m=/^(오전|오후|AM|PM|am|pm)\s*(\d{1,2}):(\d{2})$/.exec(x);if(m){var h=(+m[2])%12;if(/오후|PM|pm/.test(m[1]))h+=12;return String(h).padStart(2,'0')+':'+m[3]}
   var n=/^(\d{1,2}):(\d{2})$/.exec(x);return n?String(+n[1]).padStart(2,'0')+':'+n[2]:x}
@@ -355,9 +359,30 @@ function rebuild(){
   setTone(top().tone);renderStatus();
 }
 function goHome(){if(!unlocked)return;if(nav.length===1&&top().s==='home')return;reset('home',{},'fade-in')}
-function relock(){unlocked=false;pin='';fails=0;seen={};stopClock();lastPing=Date.now();liveDated={};reset('lock',{},'fade-in');if($('#sb'))renderStatus()}
+/* restart: the first unlock remembers every chat as it was; "restart" puts them back and drops what happened while playing */
+var baseThreads=null;
+function captureBase(){if(baseThreads)return;baseThreads=JSON.parse(JSON.stringify(S.threads));if(canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}
+function dropBase(){baseThreads=null;if(canEdit&&S.id)Store.del('base:'+S.id)}
+function loadBase(){baseThreads=null;if(!canEdit||!S.id)return Promise.resolve();var id=S.id;return Store.get('base:'+id).then(function(b){if(S.id===id&&!baseThreads&&b&&b.threads)baseThreads=b.threads})}
+function restartStory(){
+  if(baseThreads)S.threads=JSON.parse(JSON.stringify(baseThreads));
+  drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
+  resetClock();relock();
+  if(canEdit)markChanged(true);
+  if(!$('#ed').hidden)renderEditor();
+  renderSide();
+}
+function closeDlg(fromHist){var d=$('#dlg');if(!d)return;if(!fromHist&&hback('dlg'))return;d.remove()}
+function askConfirm(o,cb){
+  closeDlg();var bg=document.createElement('div');bg.className='dlg-bg';bg.id='dlg';
+  bg.innerHTML='<div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlgT" aria-describedby="dlgM"><h3 id="dlgT">'+esc(o.title)+'</h3><p id="dlgM">'+esc(o.msg)+'</p><div class="btns two"><button class="btn" data-d="no">취소</button><button class="btn danger" data-d="yes">'+esc(o.ok)+'</button></div></div>';
+  document.body.appendChild(bg);hpush('dlg');
+  bg.addEventListener('click',function(e){var d=e.target.dataset&&e.target.dataset.d;if(e.target===bg||d==='no'){closeDlg()}else if(d==='yes'){closeDlg();cb()}});
+  var n=bg.querySelector('[data-d="no"]');if(n)n.focus();
+}
+function relock(){unlocked=false;pin='';fails=0;seen={};lastPing=Date.now();liveDated={};reset('lock',{},'fade-in');if($('#sb'))renderStatus()}
 function unlockFlow(){if(top().s!=='lock')return;if(S.owner.pass){pin='';reset('pass',{},'fade-in')}else finishUnlock()}
-function finishUnlock(){unlocked=true;reset('home',{},'zoom-in');if(pendingOpen){var t=thr(pendingOpen);pendingOpen=null;if(t){push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}}}
+function finishUnlock(){captureBase();startClock();touchSeen();unlocked=true;reset('home',{},'zoom-in');if(pendingOpen){var t=thr(pendingOpen);pendingOpen=null;if(t){push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}}}
 function openThread(t){seen[t.id]=1;push(t.app==='talk'?'tchat':'chat',{id:t.id})}
 
 var toastT;
@@ -437,7 +462,7 @@ function threadFor(c,create){var hit=null;S.threads.forEach(function(t){if(!hit&
   if(!hit&&create){hit={id:uid(),app:'talk',name:c.name,avatar:null,pinned:false,unread:0,when:'',group:false,members:[],status:'',items:[]};S.threads.push(hit)}return hit}
 function startPings(){clearInterval(pingTimer);pingTimer=setInterval(pingTick,15000)}
 function pingTick(){
-  var cfg=S.system.initiate;if(!cfg.on||pingBusy||document.hidden||viewingEditorOnly())return;
+  touchSeen();var cfg=S.system.initiate;if(!cfg.on||pingBusy||viewingEditorOnly())return;
   var f=FREQ[cfg.freq]||FREQ.mid;if(Date.now()-lastPing<f.cool)return;
   var c=S.system.characters.filter(function(c){return c.ping>0}).sort(function(){return Math.random()-.5}).find(function(c){return Math.random()*100<c.ping*f.mult});
   if(c)doPing(c);
@@ -460,23 +485,61 @@ function showBanner(t,text){
   b.addEventListener('click',function(){b.remove();openThreadFresh(t)});
   setTimeout(function(){b.classList.remove('show');setTimeout(function(){b.remove()},400)},5200);
 }
+/* ---------- notifications: in-app banner, sound, system notification ---------- */
+var soundOn=true,actx=null,swReg=null;
+try{soundOn=localStorage.getItem('phone-sound')!=='0'}catch(e){}
+function audioCtx(){if(!actx){try{var C=window.AudioContext||window.webkitAudioContext;if(C)actx=new C()}catch(e){}}return actx}
+document.addEventListener('pointerdown',function(){var c=audioCtx();if(c&&c.state==='suspended')c.resume()},{passive:true});
+function playDing(force){
+  if(!soundOn&&!force)return;var c=audioCtx();if(!c)return;if(c.state==='suspended')c.resume();
+  try{var t0=c.currentTime;[[880,0],[1318.5,.13]].forEach(function(n){var o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=n[0];g.gain.setValueAtTime(0,t0+n[1]);g.gain.linearRampToValueAtTime(.22,t0+n[1]+.015);g.gain.exponentialRampToValueAtTime(.0001,t0+n[1]+.5);o.connect(g);g.connect(c.destination);o.start(t0+n[1]);o.stop(t0+n[1]+.55)});
+    if(navigator.vibrate)navigator.vibrate([60,40,60])}catch(e){}
+}
+function sysNotifyOk(){return 'Notification' in window&&Notification.permission==='granted'}
+function systemNotify(t,text){
+  if(!sysNotifyOk())return;
+  var o={body:text,tag:'phone-'+t.id,renotify:true,icon:'icon-192.png',data:{tid:t.id},silent:!soundOn};
+  try{if(swReg&&swReg.showNotification)swReg.showNotification(t.name,o);else new Notification(t.name,o)}catch(e){}
+}
+// one entry point for "a message arrived while the thread is not on screen"
+function notify(t,text){
+  var e=top();
+  if(document.hidden){systemNotify(t,text);return}
+  playDing();
+  if(!e||e.s!=='lock')showBanner(t,text);
+}
 function inThread(t){var e=top();return e&&(e.s==='chat'||e.s==='tchat')&&e.p.id===t.id}
-function doPing(c){
-  if(pingBusy)return;pingBusy=true;lastPing=Date.now();pingCount++;startClock();
-  var t=threadFor(c,true);if(inThread(t)){typingFor[t.id]=1;refreshChat(t)}
-  var gen=aiMode()?AI.json(pingPrompt(t,c)).then(function(r){return arr(Array.isArray(r)?r:r&&(r.messages||r.items)).map(function(x){return str(x&&x.v).trim()}).filter(Boolean).slice(0,3)}).catch(function(){return []}):Promise.resolve([]);
-  gen.then(function(msgs){
+function doPing(c,at){
+  if(pingBusy)return Promise.resolve();pingBusy=true;lastPing=Date.now();pingCount++;startClock();
+  var t=threadFor(c,true);if(!at&&inThread(t)){typingFor[t.id]=1;refreshChat(t)}
+  var prompt=null;if(aiMode()){tOverride=at||0;try{prompt=pingPrompt(t,c)}finally{tOverride=0}}
+  var gen=prompt?AI.json(prompt).then(function(r){return arr(Array.isArray(r)?r:r&&(r.messages||r.items)).map(function(x){return str(x&&x.v).trim()}).filter(Boolean).slice(0,3)}).catch(function(){return []}):Promise.resolve([]);
+  return gen.then(function(msgs){
     if(!msgs.length)msgs=[OPENERS[Math.floor(Math.random()*OPENERS.length)]];
-    typingFor[t.id]=0;addLiveSep(t);
-    msgs.forEach(function(v){t.items.push({w:'them',k:'text',v:v,t:nowLabel()})});
-    t.when=nowLabel();t._ping=Date.now();
-    var watching=inThread(t);
+    typingFor[t.id]=0;tOverride=at||0;
+    try{addLiveSep(t);msgs.forEach(function(v){t.items.push({w:'them',k:'text',v:v,t:nowLabel()})});t.when=nowLabel()}finally{tOverride=0}
+    t._ping=Date.now();
+    var watching=inThread(t)&&!document.hidden&&!at;
     if(watching){seen[t.id]=1;t.unread=0;refreshChat(t)}
     else{delete seen[t.id];t.unread=maxUnread(t);var e=top();
       if(e&&['lock','home','msgs','talk'].indexOf(e.s)>=0)repaintTop(true);
-      if(!e||e.s!=='lock')showBanner(t,msgs[msgs.length-1]);}
+      notify(t,msgs[msgs.length-1]);}
     markChanged(true);
   }).then(function(){pingBusy=false},function(){pingBusy=false});
+}
+// messages that "arrived" while the page was closed: roll the same odds for the time away and add them when the phone is opened again
+function seenKey(){return 'phone-seen:'+(S.id||'')}
+function touchSeen(){try{localStorage.setItem(seenKey(),String(Date.now()))}catch(e){}}
+function catchUp(){
+  var cfg=S.system&&S.system.initiate;if(!cfg||!cfg.on||!clk()||pingBusy||viewingEditorOnly())return;
+  var last=0;try{last=parseInt(localStorage.getItem(seenKey()),10)||0}catch(e){}
+  var now=Date.now(),away=now-last;touchSeen();if(!last||away<90000)return;
+  var f=FREQ[cfg.freq]||FREQ.mid,cands=S.system.characters.filter(function(c){return c.ping>0});if(!cands.length)return;
+  var slot=f.cool*2,n=Math.min(12,Math.floor(away/slot)),hits=[];
+  for(var i=1;i<=n;i++){var c=cands.slice().sort(function(){return Math.random()-.5}).find(function(c){return Math.random()*100<c.ping*f.mult*2.5});if(c)hits.push({c:c,ts:Math.min(now-5000,last+i*slot-Math.random()*slot*.6)})}
+  hits=hits.slice(0,3);if(!hits.length)return;
+  var chain=Promise.resolve();hits.forEach(function(h){chain=chain.then(function(){return doPing(h.c,h.ts)})});
+  chain.then(function(){lastPing=Date.now()});
 }
 var replyBusy={};
 function aiReply(t){
@@ -491,7 +554,8 @@ function aiReply(t){
     'JSON 배열만 출력: [{"v":"말풍선 내용"'+(t.group?',"n":"보낸 멤버 이름"':'')+'}]';
   AI.json(prompt).then(function(res){
     var out=arr(Array.isArray(res)?res:res&&(res.messages||res.items)).filter(function(x){return x&&str(x.v).trim()}).slice(0,4);
-    var i=0;(function next(){if(i>=out.length){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);markChanged(true);return}
+    var i=0;(function next(){if(i>=out.length){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);markChanged(true);
+      if(out.length&&(!inThread(t)||document.hidden)){delete seen[t.id];t.unread=maxUnread(t);var e2=top();if(e2&&['lock','home','msgs','talk'].indexOf(e2.s)>=0)repaintTop(true);notify(t,str(out[out.length-1].v))}return}
       var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group)it.n=str(x.n)||t.members[0]||'?';
       t.items.push(it);t.when=nowLabel();refreshChat(t);setTimeout(next,650+Math.min(1400,it.v.length*45))})();
   }).catch(function(err){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(err&&err.code==='rate_limited'?'답장이 잠시 늦어지고 있어요':'답장을 받지 못했어요')});
@@ -669,6 +733,7 @@ addEventListener('popstate',function(){
   else if(k==='ed')closeEditor(true);
   else if(k==='set')closeSettings(true);
   else if(k==='sheet')closeSheet(true);
+  else if(k==='dlg')closeDlg(true);
   if(H.length)arm();
 });
 
@@ -730,6 +795,7 @@ function getCur(){try{return localStorage.getItem('phone-cur')}catch(e){return n
 var phoneT,storeT,savedAt=null,saveFail=false,cloudT,cloudAt=null,cloudErr='';
 function markChanged(noPhone){
   if(!canEdit)return;
+  if(!noPhone&&baseThreads)dropBase();
   clearTimeout(storeT);storeT=setTimeout(saveLocal,700);
   if(!noPhone){clearTimeout(phoneT);phoneT=setTimeout(function(){rebuild();renderSide()},220)}
 }
@@ -741,7 +807,7 @@ function saveLocal(){
 function scheduleCloud(){clearTimeout(cloudT);cloudT=setTimeout(function(){Cloud.push(snapshot()).then(function(){cloudAt=new Date();cloudErr='';updateFoot()},function(e){cloudErr=fbMsg(e);updateFoot()})},5000)}
 function switchTo(data,opts){
   clearTimeout(storeT);
-  S=normalize(JSON.parse(JSON.stringify(data)));if(!S.id)S.id=newId();
+  S=normalize(JSON.parse(JSON.stringify(data)));if(!S.id)S.id=newId();baseThreads=null;loadBase();
   setCur(S.id);edThread=null;fillSel=null;
   relock();renderStatus();renderSide();
   if(!(opts&&opts.noSave))return saveLocal();return Promise.resolve();
@@ -1210,6 +1276,11 @@ function renderSettings(){
     h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.')+
       '<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
   h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">연결됨</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
+  h+='<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
+    '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
+    '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
+    '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>';
+  h+='<div class="sec" id="set_restart"><h3>처음부터 다시 시작</h3><p class="enote">폰을 열어 나눈 대화와 새로 도착한 메시지를 모두 지우고, 꾸며 둔 처음 상태로 되돌려요. 폰 내용을 수정한 뒤 새로 시작하고 싶을 때 쓰세요.</p><div class="row"><button class="btn danger" data-t="restart">처음부터 다시 시작</button></div></div>';
   // theme
   h+='<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>';
   // danger
@@ -1222,6 +1293,9 @@ function renderSettings(){
 function setAction(d,el){
   switch(d.t){
     case 'close':closeSettings();break;
+    case 'sysNotif':if(!('Notification' in window)){flashSet('이 브라우저는 시스템 알림을 지원하지 않아요.',true);break}Notification.requestPermission().then(function(r){renderSettings();flashSet(r==='granted'?'시스템 알림을 켰어요.':'알림이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.',r!=='granted')});break;
+    case 'testNotif':playDing(true);var tt=S.threads[0];if(tt&&sysNotifyOk()&&document.hidden)systemNotify(tt,'알림 미리 듣기');else if(tt)showBanner(tt,'알림이 이렇게 보여요');break;
+    case 'restart':askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 폰을 열어 보내고 받은 메시지가 지워지고 처음 상태로 돌아가며, 되돌릴 수 없어요. 꾸며 둔 폰 내용은 그대로 남아요.',ok:'모두 지우고 시작'},function(){restartStory();closeSettings();toast('처음부터 다시 시작했어요')});break;
     case 'login':Cloud.err='';Cloud.signIn().then(function(){renderSettings()},function(e){Cloud.err=fbMsg(e);renderSettings()});break;
     case 'logout':Cloud.signOut();break;
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
@@ -1247,6 +1321,7 @@ function setAction(d,el){
 function flashSet(msg){var el=$('#setStatus');if(el){el.textContent=msg;clearTimeout(el._t);el._t=setTimeout(function(){el.textContent=''},8000)}}
 function onSetInput(e){var el=e.target;
   if(el.id==='aiKey'){AIS.key=el.value.trim();saveAIS();aiTestMsg='';renderSide();return}
+  if(el.id==='optSound'){soundOn=el.checked;try{localStorage.setItem('phone-sound',soundOn?'1':'0')}catch(x){}if(soundOn)playDing(true);return}
   if(el.id==='aiImages'){AIS.images=el.checked;saveAIS();renderSettings();return}
   if(el.id==='aiImgModel'){AIS.imageModel=el.value.trim();saveAIS();return}
   if(el.dataset.t==='listed'&&e.type==='change'){Cloud.setShare(el.dataset.id,{listed:el.checked}).then(refreshCloudList,function(x){flashSet(fbMsg(x))})}
@@ -1294,9 +1369,13 @@ function build(){
   $('#setBg').addEventListener('click',function(){closeSettings()});
   $('#edFile').addEventListener('change',function(e){var fs=e.target.files;if(upKind==='json'){if(fs[0])importStory(fs[0])}else onFiles(fs);e.target.value=''});
   addEventListener('resize',layout);
-  document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if($('#sheet')){closeSheet();return}if(!$('#set').hidden){closeSettings();return}var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'))return;if(!$('#ed').hidden&&$('#ed').contains(tg))return;if(unlocked)A.back()});
+  document.addEventListener('visibilitychange',function(){if(document.hidden)touchSeen();else setTimeout(catchUp,300)});
+  addEventListener('pagehide',touchSeen);
+  try{if('serviceWorker' in navigator){navigator.serviceWorker.addEventListener('message',function(e){var d=e.data||{};var t=d.tid&&thr(d.tid);if(t)openThreadFresh(t)});
+    navigator.serviceWorker.register('sw.js').then(function(r){swReg=r},function(){})}}catch(e){}
+  document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if($('#dlg')){closeDlg();return}if($('#sheet')){closeSheet();return}if(!$('#set').hidden){closeSettings();return}var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'))return;if(!$('#ed').hidden&&$('#ed').contains(tg))return;if(unlocked)A.back()});
 }
-function startPhone(){startPings();layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('위쪽 검은 섬을 누르면 상황 설명이 나와요')},900)}
+function startPhone(){loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('위쪽 검은 섬을 누르면 상황 설명이 나와요')},900)}
 function boot(){
   build();applyTheme();
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
