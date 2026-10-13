@@ -529,7 +529,7 @@ function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}r
             So the moment the chat box gets focus (never earlier, or the tap would miss the box) we already make the phone as short as the keyboard will leave room for
             (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
             Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
-var APP_VER='20261013m';
+var APP_VER='20261013n';
 var vvPinned=false,prePin=false,prePinT=null;
 var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
@@ -540,10 +540,10 @@ function pinDevice(t,h){var d=document.getElementById('device');if(!d)return;t=M
   if(d.style.position!=='fixed'){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto'}
   if(d.style.top!==t)d.style.top=t;if(d.style.height!==h)d.style.height=h}
 function unpinDevice(){var d=document.getElementById('device');if(d&&d.style.position){d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height=''}}
-/* banner always sits at the top of what is visible */
+/* banner always sits at the top of what is visible (on iPhone the keyboard slides the whole page up, so push the banner down by that amount) */
 function placeBanner(){var b=document.querySelector('.pbanner');if(!b||!phoneEl)return;
-  if(vvPinned||prePin||!window.visualViewport){b.style.top='';return}
-  var r=phoneEl.getBoundingClientRect(),off=Math.round(-r.top);
+  var vv=window.visualViewport;if(!vv){b.style.top='';return}
+  var r=phoneEl.getBoundingClientRect(),off=Math.round(vv.offsetTop-r.top);
   b.style.top=(off>0&&off<r.height-120)?'calc(var(--sb) + 4px + '+off+'px)':''}
 /* keep the newest chat bubbles in view when the visible area shrinks (keyboard) or grows back, like a real messenger */
 function anchorChat(){var e=top(),c=e&&e.el&&e.el.querySelector('#cb');if(!c)return;var h=c.clientHeight;
@@ -551,17 +551,12 @@ function anchorChat(){var e=top(),c=e&&e.el&&e.el.querySelector('#cb');if(!c)ret
   if(c._h&&h!==c._h){if(c._end)c.scrollTop=c.scrollHeight;else c.scrollTop+=c._h-h}
   c._h=h;c._end=c.scrollTop+h>=c.scrollHeight-40}
 function inputFocused(){var a=document.activeElement;return !!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&phoneEl&&phoneEl.contains(a))}
-/* iOS reports the final keyboard size/offset before its slide animation has finished. Moving the phone on those numbers
-   is what made the screen jump, so we let Safari's own smooth slide play and only pin the phone once the numbers stop changing. */
-var vvSig='',vvSigAt=0;
-function fitVV(){var vv=window.visualViewport;if(!vv||!document.getElementById('device'))return;
-  var full=document.body.classList.contains('full'),kb=full&&(layoutH()-vv.height>80);
-  var sig=Math.round(vv.height)+'/'+Math.round(vv.offsetTop);if(sig!==vvSig){vvSig=sig;vvSigAt=Date.now()}
-  if(kb&&Date.now()-vvSigAt<140){if(vvTrackUntil<Date.now()+200)trackVV(300);return}
-  if(kb){prePin=false;clearTimeout(prePinT);pinDevice(vv.offsetTop,vv.height);kbRemember(layoutH()-vv.height)}
-  else if(!prePin)unpinDevice();
-  if(!kb&&!prePin&&!inputFocused()&&(window.scrollY||document.documentElement.scrollTop))window.scrollTo(0,0);
-  vvPinned=kb;placeBanner();anchorChat()}
+/* Keyboard: Android shrinks the page itself (viewport meta). iPhone slides the page up with its own smooth animation;
+   we leave that alone (moving the phone ourselves made it jump) and only keep the banner and chat in view. */
+function fitVV(){if(!window.visualViewport)return;
+  if(vvPinned||prePin){prePin=false;vvPinned=false;unpinDevice()}
+  if(!inputFocused()&&(window.scrollY||document.documentElement.scrollTop))window.scrollTo(0,0);
+  placeBanner();anchorChat()}
 function prePinFor(el,atFocus){
   if(!IS_IOS||!document.body.classList.contains('full')||vvPinned||(!atFocus&&inputFocused())||!el||el.id!=='chatIn')return;
   anchorChat();prePin=true;pinDevice(0,layoutH()-kbGuess());anchorChat();
