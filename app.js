@@ -529,7 +529,7 @@ function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}r
             So the moment the chat box gets focus (never earlier, or the tap would miss the box) we already make the phone as short as the keyboard will leave room for
             (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
             Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
-var APP_VER='20261013n';
+var APP_VER='20261013p';
 var vvPinned=false,prePin=false,prePinT=null;
 var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
@@ -609,12 +609,14 @@ function notify(t,text){
   playDing();
   if(!e||e.s!=='lock')showBanner(t,text);
 }
+/* show a new bubble wherever the person is: inside that chat, or in the chat list (preview text and time) */
+function liveRefresh(t){if(inThread(t)){refreshChat(t);return}var e=top();if(e&&['msgs','talk'].indexOf(e.s)>=0)repaintTop(true)}
 function inThread(t){var e=top();return e&&(e.s==='chat'||e.s==='tchat')&&e.p.id===t.id}
 function doPing(c,at){
   if(pingBusy)return Promise.resolve();pingBusy=true;lastPing=Date.now();pingCount++;startClock();
   var t=threadFor(c,true);if(!at&&inThread(t)){typingFor[t.id]=1;refreshChat(t)}
   var prompt=null;if(aiMode()){tOverride=at||0;try{prompt=pingPrompt(t,c)}finally{tOverride=0}}
-  var gen=prompt?AI.json(prompt).then(function(r){return arr(Array.isArray(r)?r:r&&(r.messages||r.items)).map(function(x){return str(x&&x.v).trim()}).filter(Boolean).slice(0,3)}).catch(function(){return []}):Promise.resolve([]);
+  var gen=prompt?AI.fast(prompt).then(function(r){return arr(Array.isArray(r)?r:r&&(r.messages||r.items)).map(function(x){return str(x&&x.v).trim()}).filter(Boolean).slice(0,3)}).catch(function(){return []}):Promise.resolve([]);
   return gen.then(function(msgs){
     if(!msgs.length)msgs=[OPENERS[Math.floor(Math.random()*OPENERS.length)]];
     typingFor[t.id]=0;tOverride=at||0;
@@ -647,7 +649,7 @@ function aiReply(t){
   if(!aiMode()){if(keyAskable())openKeyDlg('답장을 받으려면 내 Gemini API 키를 등록해 주세요. 무료로 만들 수 있어요.');return}
   if(replyBusy[t.id])return;
   replyBusy[t.id]=1;
-  setTimeout(function(){if(replyBusy[t.id]){typingFor[t.id]=1;refreshChat(t)}},700);
+  setTimeout(function(){if(replyBusy[t.id]){typingFor[t.id]=1;refreshChat(t)}},250);
   var others=t.members.filter(function(m){return m!==S.owner.name});
   var who=t.group?'단톡방 "'+t.name+'"의 멤버들('+others.join(', ')+')':"'"+t.name+"'";
   var lines=t.items.slice(-40).map(function(it){if(it.k==='date')return '--- '+sep24(it.v)+' ---';var n=it.w==='me'?S.owner.name:(t.group?(it.n||'?'):t.name);return (it.t?'['+to24(it.t)+'] ':'')+n+': '+(it.k==='photo'?'[사진'+(it.ph&&it.ph.l?': '+it.ph.l:'')+']':it.k==='voice'?'[음성 메시지]':it.v)}).join('\n');
@@ -655,12 +657,12 @@ function aiReply(t){
     '\n지금 폰의 날짜와 시각: '+(function(){var d=phoneNow();return d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일 '+hhmm(d)})()+'. 시간대(새벽·아침·밤 등)와 시각을 말할 때는 반드시 이 시각에 맞춰라.\n'+
     '\n최근 대화 (위가 오래된 것, [ ]는 보낸 시각):\n'+lines+'\n\n\''+S.owner.name+'\'가 방금 보낸 메시지에 답장해라. 비공개 설정의 성격·말투·관계·지침을 지키고, 지금까지의 맥락과 감정선을 그대로 이어 간다. 실제 한국어 메신저처럼 짧고 자연스럽게, 말풍선 1~3개. 이야기의 비밀을 직접 설명하지 말고, 너는 AI라는 말도 하지 마라.\n'+
     (t.group?'답장은 위 멤버들('+others.join(', ')+') 중에서만 나온다. 폰 주인 \''+S.owner.name+'\'는 절대 답장하지 마라. 폰 주인의 말·행동을 대신 쓰지 마라.\n':'')+'JSON 배열만 출력: [{"v":"말풍선 내용"'+(t.group?',"n":"보낸 멤버 이름(반드시 멤버 중 한 명)"':'')+'}]';
-  AI.json(prompt).then(function(res){
+  AI.fast(prompt).then(function(res){
     var out=arr(Array.isArray(res)?res:res&&(res.messages||res.items)).filter(function(x){return x&&str(x.v).trim()&&!(t.group&&str(x.n).trim()===S.owner.name)}).slice(0,4);
     var i=0;(function next(){if(i>=out.length){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);markChanged(true);
       if(out.length&&(!inThread(t)||document.hidden)){delete seen[t.id];t.unread=maxUnread(t);var e2=top();if(e2&&['lock','home','msgs','talk'].indexOf(e2.s)>=0)repaintTop(true);notify(t,str(out[out.length-1].v))}return}
       var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group){var nn=str(x.n).trim();it.n=(nn&&others.indexOf(nn)>=0)?nn:(others[0]||t.members[0]||'?')}
-      it.lv=1;t.items.push(it);t.when=nowLabel();refreshChat(t);setTimeout(next,650+Math.min(1400,it.v.length*45))})();
+      it.lv=1;t.items.push(it);t.when=nowLabel();liveRefresh(t);if(i<out.length)setTimeout(next,350+Math.min(650,it.v.length*18));else next()})();
   }).catch(function(err){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(err&&err.code==='rate_limited'?'답장이 잠시 늦어지고 있어요':'답장을 받지 못했어요')});
 }
 function playVoice(el){
@@ -732,6 +734,15 @@ var AI={
     return run(0,0).then(function(j){
       var t=partsOf(j).filter(function(p){return p.text&&!p.thought}).map(function(p){return p.text}).join('');if(!t.trim())throw {code:'empty'};return t})},
   json:function(prompt){return AI.text(prompt,true).then(parseJSONLoose)},
+  /* chat replies: the light model answers in about a second; each try gets a few seconds before we move on to the other model */
+  fast:function(prompt){
+    var light=CFG.fastModel||(CFG.textModels||[]).filter(function(m){return /lite/.test(m)})[0]||CFG.textModel;
+    var ms=[light].concat([CFG.textModel].concat(CFG.textModels||[]).filter(function(m,i,a){return m!==light&&a.indexOf(m)===i}));
+    var body={contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:1,responseMimeType:'application/json',maxOutputTokens:400}};
+    function within(p,ms){return Promise.race([p,new Promise(function(_,rej){setTimeout(function(){rej({code:'timeout'})},ms)})])}
+    function run(i){return within(gemini(ms[i],body),i===0?4500:9000).catch(function(e){
+      if(e&&(e.code==='bad_key'||e.code==='no_ai'||e.code==='network'))throw e;if(i+1<ms.length)return run(i+1);throw e})}
+    return run(0).then(function(j){var t=partsOf(j).filter(function(p){return p.text&&!p.thought}).map(function(p){return p.text}).join('');if(!t.trim())throw {code:'empty'};return parseJSONLoose(t)})},
   image:function(prompt){return gemini(imageModel(),{contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}}).then(function(j){
     var ps=partsOf(j);for(var i=0;i<ps.length;i++){var d=ps[i].inlineData||ps[i].inline_data;if(d&&d.data)return compressUrl('data:'+(d.mimeType||d.mime_type||'image/png')+';base64,'+d.data,1000)}
     throw {code:'no_image'}})}
@@ -881,7 +892,7 @@ function sideHtml(){
     (sc.text?'<p class="story">'+esc(sc.text)+'</p>':'')+
     '<div class="btns two">'+(viewMode?'<button class="btn primary" data-s="copy">이 폰 복사해서 꾸미기</button>':'<button class="btn primary" data-s="edit">폰 꾸미기</button>')+'<button class="btn" data-s="relock">처음부터 다시 시작</button></div>';
 }
-function renderSide(){var s=$('#side');if(s)s.innerHTML=sideHtml();var sh=$('#sheetIn');if(sh)sh.innerHTML='<span class="grab" aria-hidden="true"></span>'+sideHtml()}
+function renderSide(){if(!S||!S.scenario)return;var s=$('#side');if(s)s.innerHTML=sideHtml();var sh=$('#sheetIn');if(sh)sh.innerHTML='<span class="grab" aria-hidden="true"></span>'+sideHtml()}
 function openInfo(){var b=document.body.classList;if(!b.contains('full')&&!b.contains('narrow')&&!b.contains('editing'))return;
   if($('#sheet'))return;var bg=document.createElement('div');bg.className='sheet-bg';bg.id='sheet';bg.innerHTML='<div class="sheet" id="sheetIn" role="dialog" aria-label="상황 설명"></div>';document.body.appendChild(bg);renderSide();hpush('sheet');
   bg.addEventListener('click',function(e){if(e.target===bg)closeSheet()})}
@@ -953,6 +964,12 @@ function switchTo(data,opts){
 }
 function blankStory(){return {id:newId(),owner:{name:'새 주인공',status:'',wall:'night',time:'23:30',date:todayStr(),battery:64,pass:'',hint:''},scenario:{title:'',text:'',cast:''},threads:[],friends:[],contacts:[],gallery:[],search:[],memos:[],calls:[],events:[],images:{}}}
 function exampleStory(){var d=JSON.parse(JSON.stringify(window.PHONE_EXAMPLE||blankStory()));d.id=newId();return d}
+/* the example comes from a published phone (config.js examplePlay), so re-publishing that phone updates the example.
+   Falls back to the built-in example when offline or not set. */
+function exampleStoryAsync(){var pid=CFG.examplePlay;if(!pid||!Cloud.cfg())return Promise.resolve(exampleStory());
+  var t=new Promise(function(_,rej){setTimeout(function(){rej({code:'timeout'})},7000)});
+  return Promise.race([Cloud.init().then(function(ok){if(!ok)throw {code:'unavailable'};return Cloud.fetchPlay(pid)}),t])
+    .then(function(r){var d=JSON.parse(JSON.stringify(r.story));d.id=newId();delete d.savedAt;return d},function(){return exampleStory()})}
 function download(name,text){
   if(window.PHONE_SAVE_FILE)return window.PHONE_SAVE_FILE(name,text);
   var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();
@@ -970,7 +987,8 @@ function fbMsg(e){var c=e&&e.code||'';
     too_big:'이 폰은 너무 커서 저장할 수 없어요. 대화나 사진 수를 줄여 주세요.',unavailable:'서버에 연결하지 못했어요. 잠시 뒤에 다시 해 주세요.'}[c]||(e&&e.message?String(e.message).slice(0,160):'문제가 생겼어요.')}
 var Cloud={on:false,ready:false,user:null,err:'',
   cfg:function(){return CFG.firebase&&CFG.firebase.apiKey&&CFG.firebase.projectId?CFG.firebase:null},
-  init:function(){
+  init:function(){if(this._initP)return this._initP;return this._initP=this._init()},
+  _init:function(){
     var c=this.cfg(),self=this;if(!c){self.ready=true;return Promise.resolve(false)}
     var base='https://www.gstatic.com/firebasejs/'+(CFG.firebaseVersion||'10.14.1')+'/';
     return loadScript(base+'firebase-app-compat.js').then(function(){return loadScript(base+'firebase-auth-compat.js')}).then(function(){return loadScript(base+'firebase-firestore-compat.js')}).then(function(){
@@ -1245,7 +1263,7 @@ ED.sys=function(){
 ED.rec=function(){return listSec('search')+listSec('events')+listSec('calls')+listSec('memos')};
 function getPath(o,path){return path.split('.').reduce(function(c,k){return c==null?undefined:c[k]},o)}
 function setPath(o,path,v){var ks=path.split('.'),c=o;for(var i=0;i<ks.length-1;i++){if(c[ks[i]]==null||typeof c[ks[i]]!=='object')c[ks[i]]={};c=c[ks[i]]}c[ks[ks.length-1]]=v}
-function updateFoot(){var el=$('#edStatus');if(!el)return;
+function updateFoot(){var el=$('#edStatus');if(!el||!S)return;
   if(noteMsg){el.className='st'+(noteErr?' err':' dirty');el.textContent=noteMsg;return}
   el.className='st'+(cloudErr?' err':'');
   var t=function(d){return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
@@ -1532,7 +1550,7 @@ function setAction(d,el){
     case 'restart':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 폰 꾸미기에서 고친 내용은 그대로 반영되고, 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){applyRestart()});break;
     case 'login':Cloud.err='';Cloud.signIn().then(function(){renderSettings()},function(e){Cloud.err=fbMsg(e);renderSettings()});break;
     case 'logout':Cloud.signOut();break;
-    case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
+    case 'newBlank':case 'newEx':saveLocal();(d.t==='newBlank'?Promise.resolve(blankStory()):(flashSet('예시를 불러오는 중…'),exampleStoryAsync())).then(switchTo).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
     case 'open':openStory(d.id);break;
     case 'share':if(shareOpen===d.id){shareOpen=null;renderSettings();break}openShare(d.id);break;
     case 'publish':A_publish(d.id);break;
@@ -1553,7 +1571,7 @@ function setAction(d,el){
     case 'clearKey':AIS.key='';saveAIS();aiTestMsg='';renderSettings();renderSide();break;
     case 'aiTest':runKeyTest();break;
     case 'theme':themePref=d.v;try{localStorage.setItem(THEME_KEY,themePref)}catch(e){}applyTheme();renderSettings();break;
-    case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}Store.del('ai');AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return switchTo(exampleStory())}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
+    case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}Store.del('ai');AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return exampleStoryAsync().then(function(d){return switchTo(d)})}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
     case 'delAcct':if(!armAcct){armAcct=true;renderSettings();break}armAcct=false;flashSet('계정을 삭제하는 중…');Cloud.deleteAccount().then(function(){cloudList=null;flashSet('계정을 삭제했어요. 이 기기에 있는 폰은 남아 있어요.');renderSettings()},function(e){flashSet(fbMsg(e))});break;
   }
 }
@@ -1583,7 +1601,7 @@ function deleteStory(id){
   var cm=arr(cloudList).some(function(c){return c.id===id});
   Promise.all([Lib.has(id)?Lib.del(id):null,cm&&Cloud.user?Cloud.remove(id).catch(function(e){flashSet(fbMsg(e))}):null]).then(function(){
     if(cloudList)cloudList=cloudList.filter(function(c){return c.id!==id});
-    if(id===S.id){var next=Lib.metas[0];(next?Lib.get(next.id):Promise.resolve(null)).then(function(d){return switchTo(d||exampleStory())}).then(renderSettings)}else renderSettings();
+    if(id===S.id){var next=Lib.metas[0];(next?Lib.get(next.id):Promise.resolve(null)).then(function(d){return d||exampleStoryAsync()}).then(function(d){return switchTo(d)}).then(renderSettings)}else renderSettings();
     flashSet('삭제했어요.');
   });
 }
@@ -1651,9 +1669,9 @@ function boot(){
     if(d==='stop')return;
     if(d){S=normalize(d);if(!S.id)S.id=newId();startPhone();return}
     var cur=getCur(),id=cur&&Lib.has(cur)?cur:(Lib.metas[0]&&Lib.metas[0].id);
-    return (id?Lib.get(id):Promise.resolve(null)).then(function(x){
-      S=normalize(x||exampleStory());if(!S.id)S.id=newId();setCur(S.id);startPhone();
-      if(!x)saveLocal();
+    return (id?Lib.get(id):Promise.resolve(null)).then(function(x){return x?{d:x,saved:true}:exampleStoryAsync().then(function(d){return {d:d}})}).then(function(r){
+      S=normalize(r.d);if(!S.id)S.id=newId();setCur(S.id);startPhone();
+      if(!r.saved)saveLocal();
     });
   });
 }

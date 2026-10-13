@@ -35,5 +35,17 @@ window.PHONE_CONFIG = {
   //   projectId: '내프로젝트',
   //   appId: '1:1234567890:web:abcdef'
   // },
-  firebaseVersion: '10.14.1'
+  firebaseVersion: '10.14.1',
+
+  // ── 예시 폰 ───────────────────────────────────────────
+  // '+ 예시로 시작'과 처음 방문했을 때 보이는 예시를, 이 아이디로 배포된 폰에서 가져와요.
+  // 그 폰을 고쳐서 다시 배포하면 예시도 바로 바뀌어요. 비워 두면('') 기본 예시(example-data.js)를 써요.
+  examplePlay: 'mv6p4aeuyjyekp1e1qvs',
+
+  // ── 역할 ──────────────────────────────────────────────
+  // 총관리자 이메일. 설정에 '총관리자' 칸이 생겨 모든 배포를 관리할 수 있어요.
+  // firestore.rules의 isSuper()에 적힌 이메일과 똑같이 맞춰야 실제로 권한이 생겨요.
+  superAdmins: ['jyuel1411@gmail.com'],
+  // 플레이 링크의 기본 주소. 비워 두면 지금 사이트 주소를 써요. 예) 'https://rubidirector.github.io/Snoop/'
+  playBase: ''
 };
