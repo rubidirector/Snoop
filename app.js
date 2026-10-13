@@ -379,7 +379,7 @@ function applyRestart(){edDirty=false;endDraft(true);restartStory();forceClose=t
 function askLeave(){askConfirm({title:'고친 내용을 반영할까요?',msg:'하던 대화는 그대로 남아 있어요. 고친 내용은 처음부터 다시 시작해야 폰에 반영돼요.',ok:'처음부터 다시 시작',no:'수정 버리고 닫기'},applyRestart,function(){endDraft(false);saveLocal();forceClose=true;closeEditor();forceClose=false;rebuild();renderSide()})}
 function restartStory(){
   S.threads=stripLive(S.threads);baseThreads=null;
-  drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
+  drafts={};typingFor={};for(var rk in replyRetry)clearTimeout(replyRetry[rk]);replyRetry={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
   resetClock();relock();
   if(canEdit)markChanged(true);
   if(!$('#ed').hidden)renderEditor();
@@ -529,7 +529,7 @@ function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}r
             So the moment the chat box gets focus (never earlier, or the tap would miss the box) we already make the phone as short as the keyboard will leave room for
             (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
             Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
-var APP_VER='20261013p';
+var APP_VER='20261013r';
 var vvPinned=false,prePin=false,prePinT=null;
 var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
@@ -645,7 +645,9 @@ function catchUp(){
   chain.then(function(){lastPing=Date.now()});
 }
 var replyBusy={};
-function aiReply(t){
+var replyRetry={};
+function isDailyQuota(e){return !!(e&&e.code==='rate_limited'&&/per.?day|daily|PerDay/i.test(String(e.message||'')))}
+function aiReply(t,attempt){attempt=attempt||0;if(replyRetry[t.id])return; // a retry is already waiting; it will answer the newest messages too
   if(!aiMode()){if(keyAskable())openKeyDlg('답장을 받으려면 내 Gemini API 키를 등록해 주세요. 무료로 만들 수 있어요.');return}
   if(replyBusy[t.id])return;
   replyBusy[t.id]=1;
@@ -663,7 +665,14 @@ function aiReply(t){
       if(out.length&&(!inThread(t)||document.hidden)){delete seen[t.id];t.unread=maxUnread(t);var e2=top();if(e2&&['lock','home','msgs','talk'].indexOf(e2.s)>=0)repaintTop(true);notify(t,str(out[out.length-1].v))}return}
       var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group){var nn=str(x.n).trim();it.n=(nn&&others.indexOf(nn)>=0)?nn:(others[0]||t.members[0]||'?')}
       it.lv=1;t.items.push(it);t.when=nowLabel();liveRefresh(t);if(i<out.length)setTimeout(next,350+Math.min(650,it.v.length*18));else next()})();
-  }).catch(function(err){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(err&&err.code==='rate_limited'?'답장이 잠시 늦어지고 있어요':'답장을 받지 못했어요')});
+  }).catch(function(err){var c=err&&err.code;
+    /* Gemini busy or over its free limit: keep the "typing…" dots on and quietly try again later, so the reply still arrives.
+       Daily limit: try every 10 minutes (it resets the next day). Wrong key: stop and say so. */
+    if(c!=='bad_key'&&c!=='no_ai'&&c!=='blocked'){
+      var wait=isDailyQuota(err)?600000:[8000,15000,30000,60000][Math.min(attempt,3)];
+      typingFor[t.id]=1;replyBusy[t.id]=1;refreshChat(t);
+      replyRetry[t.id]=setTimeout(function(){delete replyRetry[t.id];replyBusy[t.id]=0;aiReply(t,attempt+1)},wait);return}
+    typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(c==='blocked'?'이 대화에는 답장을 만들 수 없어요':aiErrMsg(err))});
 }
 function playVoice(el){
   if(el._t){clearInterval(el._t);el._t=null;el.querySelectorAll('.wave i').forEach(function(b){b.classList.remove('p')});el.querySelector('.vp').innerHTML=I.play;return}
@@ -876,7 +885,7 @@ var viewMode=false,canEdit=true,viewInfo=null;
 var playerMode=false,playKey=null,pubStory=null,pubVer=0,playSaveT=null;
 function savePlay(){if(!playerMode||!playKey)return;clearTimeout(playSaveT);playSaveT=setTimeout(function(){var d=JSON.parse(JSON.stringify(S));delete d.images;Store.set('play:'+playKey,{version:pubVer,story:d,at:Date.now()})},500)}
 function playerRestart(){if(!pubStory)return;var d=JSON.parse(JSON.stringify(pubStory));d.id='pl-'+playKey;S=normalize(d);
-  drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;baseThreads=null;
+  drafts={};typingFor={};for(var rk in replyRetry)clearTimeout(replyRetry[rk]);replyRetry={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;baseThreads=null;
   resetClock();relock();clearTimeout(playSaveT);Store.del('play:'+playKey);closeSheet();renderSide();toast('처음부터 다시 시작했어요')}
 function renderStatus(){
   var o=S.owner,low=o.battery<=20;
