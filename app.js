@@ -394,7 +394,7 @@ function openKeyDlg(why,done){
   bg.innerHTML='<div class="dlg keydlg" role="dialog" aria-modal="true" aria-labelledby="kdT"><h3 id="kdT">내 API 키 등록</h3><p>'+esc(why||who)+'</p>'+
     '<ol class="kd-steps"><li><a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio 열기 ↗</a></li><li>"API 키 만들기"를 누르고 키를 복사</li><li>아래 칸에 붙여넣기</li></ol>'+
     '<input id="kdIn" type="password" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false" value="'+esc(AIS.key)+'">'+
-    '<p class="kd-msg" id="kdMsg">키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 다른 사람(관리자·사용자)에게 공유되지 않아요.</p>'+
+    '<p class="kd-msg" id="kdMsg">키는 이 기기에 저장되고, Google로 로그인했다면 내 계정에도 저장돼서 다른 기기에서도 그대로 쓸 수 있어요. 키는 Google에만 보내져요. 다른 사람(관리자·사용자)에게 공유되지 않아요.</p>'+
     '<div class="btns two"><button class="btn" data-d="later">나중에</button><button class="btn primary" data-d="save">등록</button></div></div>';
   document.body.appendChild(bg);hpush('dlg');
   try{localStorage.setItem(keyAskKey(),'1')}catch(e){}
@@ -529,7 +529,7 @@ function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}r
             So the moment the chat box gets focus (never earlier, or the tap would miss the box) we already make the phone as short as the keyboard will leave room for
             (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
             Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
-var APP_VER='20261013k';
+var APP_VER='20261013m';
 var vvPinned=false,prePin=false,prePinT=null;
 var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
@@ -551,8 +551,13 @@ function anchorChat(){var e=top(),c=e&&e.el&&e.el.querySelector('#cb');if(!c)ret
   if(c._h&&h!==c._h){if(c._end)c.scrollTop=c.scrollHeight;else c.scrollTop+=c._h-h}
   c._h=h;c._end=c.scrollTop+h>=c.scrollHeight-40}
 function inputFocused(){var a=document.activeElement;return !!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&phoneEl&&phoneEl.contains(a))}
+/* iOS reports the final keyboard size/offset before its slide animation has finished. Moving the phone on those numbers
+   is what made the screen jump, so we let Safari's own smooth slide play and only pin the phone once the numbers stop changing. */
+var vvSig='',vvSigAt=0;
 function fitVV(){var vv=window.visualViewport;if(!vv||!document.getElementById('device'))return;
   var full=document.body.classList.contains('full'),kb=full&&(layoutH()-vv.height>80);
+  var sig=Math.round(vv.height)+'/'+Math.round(vv.offsetTop);if(sig!==vvSig){vvSig=sig;vvSigAt=Date.now()}
+  if(kb&&Date.now()-vvSigAt<140){if(vvTrackUntil<Date.now()+200)trackVV(300);return}
   if(kb){prePin=false;clearTimeout(prePinT);pinDevice(vv.offsetTop,vv.height);kbRemember(layoutH()-vv.height)}
   else if(!prePin)unpinDevice();
   if(!kb&&!prePin&&!inputFocused()&&(window.scrollY||document.documentElement.scrollTop))window.scrollTo(0,0);
@@ -568,7 +573,7 @@ function trackVV(ms){var go=!vvTrackUntil||Date.now()>vvTrackUntil;vvTrackUntil=
 if(window.visualViewport){visualViewport.addEventListener('scroll',function(){trackVV(400)});visualViewport.addEventListener('resize',function(){trackVV(900)})}
 addEventListener('scroll',fitVV,{passive:true});
 addEventListener('resize',function(){anchorChat();trackVV(500)});
-document.addEventListener('focusin',function(e){if(IS_IOS&&e.target&&e.target.id==='chatIn'&&!prePin&&!vvPinned)prePinFor(e.target,true);anchorChat();trackVV(1200)});
+document.addEventListener('focusin',function(){anchorChat();trackVV(1200)});
 document.addEventListener('focusout',function(){setTimeout(function(){if(!inputFocused()){prePin=false;clearTimeout(prePinT)}trackVV(1200)},0)});
 addEventListener('orientationchange',function(){setTimeout(function(){trackVV(600)},200)});
 function showBanner(t,text){
@@ -678,8 +683,17 @@ function bindSwipe(e){var st=e.el.querySelector('#pvStage');if(!st)return;var x0
 var CFG=Object.assign({aiProxy:'',allowUserKey:true,textModel:'gemini-3.8-flash',textModels:['gemini-3.8-flash','gemini-3.5-flash-lite'],imageModel:'gemini-3.1-flash-image',allowImages:false},window.PHONE_CONFIG||{});
 var AI_KEY='phone-ai-v1';
 var AIS={key:'',textModel:'',imageModel:'',images:false};
-try{Object.assign(AIS,JSON.parse(localStorage.getItem(AI_KEY)||'{}'))}catch(e){}
-function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}try{Store.set('ai',JSON.parse(JSON.stringify(AIS)))}catch(e){}}
+try{Object.assign(AIS,JSON.parse(localStorage.getItem(AI_KEY)||'{}'))}catch(e){}AIS.images=false;
+function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}try{Store.set('ai',JSON.parse(JSON.stringify(AIS)))}catch(e){}keyToCloud()}
+/* logged-in admins keep their key in their own account too, so it comes back on any device after Google login */
+var keyCloudT=null,keyCloudLast=null;
+function keyToCloud(){if(typeof Cloud==='undefined'||!Cloud.user||keyCloudLast===AIS.key)return;clearTimeout(keyCloudT);
+  keyCloudT=setTimeout(function(){var k=AIS.key;Cloud.saveKey(k).then(function(){keyCloudLast=k},function(){})},600)}
+function keyFromCloud(){if(!Cloud.user)return;keyCloudLast=null;
+  Cloud.loadKey().then(function(k){
+    if(k&&!AIS.key){AIS.key=k;keyCloudLast=k;saveAIS();aiTestMsg='';renderSettings();renderSide()}
+    else if(AIS.key&&k!==AIS.key)keyToCloud();
+    else keyCloudLast=k},function(){})}
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 function aiMode(){if(window.PHONE_AI_OVERRIDE)return 'preview';return CFG.aiProxy?'proxy':(CFG.allowUserKey&&AIS.key?'key':null)}
 function textModel(){return CFG.textModel}
@@ -1033,8 +1047,11 @@ var Cloud={on:false,ready:false,user:null,err:'',
   listAllPlays:function(){var self=this;return self.db.collection('plays').limit(500).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.playMeta(d))});return a.sort(function(x,y){return y.updatedAt-x.updatedAt})})},
   setPlay:function(id,patch){return this.playRef(id).update(patch)},
   remove:function(id){var ref=this.ref(id);return ref.collection('images').get().then(function(qs){var ps=[];qs.forEach(function(d){ps.push(d.ref.delete())});return Promise.all(ps)}).then(function(){return ref.delete()})},
+  userRef:function(){return this.user?this.db.collection('users').doc(this.user.uid):null},
+  saveKey:function(k){var r=this.userRef();if(!r)return Promise.resolve();return r.set({geminiKey:k||'',keyAt:Date.now()},{merge:true})},
+  loadKey:function(){var r=this.userRef();if(!r)return Promise.resolve(null);return r.get().then(function(d){return d.exists?(d.data().geminiKey||''):null})},
   deleteAccount:function(){var self=this,u=self.user;
-    return self.listMine().then(function(ms){return ms.reduce(function(p,m){return p.then(function(){return self.remove(m.id)})},Promise.resolve())})
+    return (self.userRef()?self.userRef().delete().catch(function(){}):Promise.resolve()).then(function(){return self.listMine()}).then(function(ms){return ms.reduce(function(p,m){return p.then(function(){return self.remove(m.id)})},Promise.resolve())})
       .then(function(){return self.listMyPlays()}).then(function(ps){return ps.reduce(function(p,m){return p.then(function(){return self.unpublish(m.id)})},Promise.resolve())})
       .then(function(){return u.delete().catch(function(e){if(e&&e.code==='auth/requires-recent-login')return u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()).then(function(){return u.delete()});throw e})})}
 };
@@ -1053,7 +1070,7 @@ function A_publish(id){if(publishing)return;publishing=id;renderSettings();
     shareOpen=id;renderSettings();flashSet('배포했어요. 아래 링크를 복사해서 보내 주세요.')},
   function(e){publishing=null;renderSettings();flashSet(fbMsg(e))})}
 var cloudList=null,exploreList=null,myPlays=null,allPlays=null,armSup=null;
-function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
+function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();keyFromCloud();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
 function refreshCloudList(){if(!Cloud.user){cloudList=null;myPlays=null;return}Cloud.listMine().then(function(a){cloudList=a;renderSettings()},function(e){cloudErr=fbMsg(e);renderSettings()});
   Cloud.listMyPlays().then(function(a){myPlays={};a.forEach(function(m){myPlays[m.id]=m});renderSettings()},function(){myPlays={}})}
 function isSuper(){var u=Cloud.user;return !!(u&&u.email&&arr(CFG.superAdmins).map(function(x){return String(x).toLowerCase()}).indexOf(String(u.email).toLowerCase())>=0)}
@@ -1455,8 +1472,8 @@ function aiSecHtml(player){var h='<div class="sec" id="set_ai"><h3>'+(player?'�
   else if(!CFG.allowUserKey)h+='<p class="enote">이 사이트는 AI 기능을 꺼 두었어요.</p>';
   else{
     h+='<p class="enote">'+(player?'폰 속 인물들과 대화하려면 내 Gemini API 키가 필요해요. 무료로 만들 수 있어요. 키가 없어도 폰은 그대로 둘러볼 수 있어요.':'AI 기능은 각자 자기 Gemini API 키로 써요. 배포한 폰을 보는 사용자도 각자 자기 키를 등록해요. 내 키는 배포 데이터에 들어가지 않아서 사용자에게 공유되지 않아요.')+'</p>';
-    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.');
-    if(!player)h+='<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
+    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기에 저장되고, Google로 로그인했다면 내 계정에도 저장돼서 다른 기기에서도 그대로 쓸 수 있어요. 키는 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.');
+  }
   h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">'+(CFG.aiProxy?'연결됨':'키 입력됨')+'</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
   return h}
 function notifSecHtml(){return '<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
@@ -1539,15 +1556,19 @@ function setAction(d,el){
     case 'loadExplore':Cloud.explore().then(function(a){exploreList=a;renderSettings()},function(e){flashSet(fbMsg(e))});break;
     case 'toggleKey':showKey=!showKey;renderSettings();break;
     case 'clearKey':AIS.key='';saveAIS();aiTestMsg='';renderSettings();renderSide();break;
-    case 'aiTest':if(!aiMode()){aiTestMsg='먼저 키를 넣어 주세요.';renderSettings();break}aiTestMsg='확인 중…';renderSettings();AI.text('연결 확인입니다. "확인"이라고만 답하세요.').then(function(){aiTestMsg='정상이에요'},function(e){aiTestMsg=aiErrMsg(e)}).then(function(){renderSettings();renderSide()});break;
+    case 'aiTest':runKeyTest();break;
     case 'theme':themePref=d.v;try{localStorage.setItem(THEME_KEY,themePref)}catch(e){}applyTheme();renderSettings();break;
     case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}Store.del('ai');AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return switchTo(exampleStory())}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
     case 'delAcct':if(!armAcct){armAcct=true;renderSettings();break}armAcct=false;flashSet('계정을 삭제하는 중…');Cloud.deleteAccount().then(function(){cloudList=null;flashSet('계정을 삭제했어요. 이 기기에 있는 폰은 남아 있어요.');renderSettings()},function(e){flashSet(fbMsg(e))});break;
   }
 }
+var keyTestT=null,keyTestN=0;
+function runKeyTest(){if(!aiMode()){aiTestMsg='먼저 키를 넣어 주세요.';renderSettings();return}var n=++keyTestN;aiTestMsg='확인 중…';renderSettings();
+  AI.text('연결 확인입니다. "확인"이라고만 답하세요.').then(function(){if(n===keyTestN)aiTestMsg='정상이에요'},function(e){if(n===keyTestN)aiTestMsg=aiErrMsg(e)}).then(function(){if(n===keyTestN){renderSettings();renderSide()}})}
 function flashSet(msg){var el=$('#setStatus');if(el){el.textContent=msg;clearTimeout(el._t);el._t=setTimeout(function(){el.textContent=''},8000)}}
 function onSetInput(e){var el=e.target;
-  if(el.id==='aiKey'){AIS.key=el.value.trim();saveAIS();aiTestMsg='';renderSide();return}
+  if(el.id==='aiKey'){var nk=el.value.trim();if(nk===AIS.key)return;AIS.key=nk;saveAIS();aiTestMsg='';renderSide();
+    clearTimeout(keyTestT);if(nk.length>=30)keyTestT=setTimeout(function(){if(AIS.key===nk)runKeyTest()},700);return}
   if(el.id==='optSound'){soundOn=el.checked;try{localStorage.setItem('phone-sound',soundOn?'1':'0')}catch(x){}if(soundOn)playDing(true);return}
   if(el.id==='aiImages'){AIS.images=el.checked;saveAIS();renderSettings();return}
   if(el.id==='aiImgModel'){AIS.imageModel=el.value.trim();saveAIS();return}
@@ -1610,7 +1631,7 @@ function boot(){
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
   var cloudP=Cloud.init();
   Store.get('ai').then(function(a){
-    if(a&&a.key&&!AIS.key){Object.assign(AIS,a);try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
+    if(a&&a.key&&!AIS.key){Object.assign(AIS,a);AIS.images=false;try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
     else if(AIS.key&&!(a&&a.key))Store.set('ai',JSON.parse(JSON.stringify(AIS)))
   }).catch(function(){}).then(function(){return Lib.load()}).then(function(){
     if(Lib.metas.length)return;
