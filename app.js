@@ -472,6 +472,9 @@ function bindChatInput(root){
   inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&!ev.isComposing){ev.preventDefault();sendLive()}});
   if(drafts[inp.dataset.tid]){inp.value=drafts[inp.dataset.tid];upd()}
   inp.addEventListener('blur',function(){drafts[inp.dataset.tid]=inp.value});
+  [].forEach.call(root.querySelectorAll('[data-a="send"]'),function(btn){
+    btn.addEventListener('mousedown',function(e){e.preventDefault()});
+    btn.addEventListener('touchend',function(e){if(document.activeElement===inp){e.preventDefault();sendLive();inp.focus()}},{passive:false})});
 }
 var drafts={},typingFor={};
 function chatBodyHtml(t){return (t.app==='talk'?talkItems(t):msgItems(t))+(typingFor[t.id]?'<div class="typing"><i></i><i></i><i></i></div>':'')}
@@ -490,10 +493,12 @@ function addLiveSep(t){
 function sep24(v){return str(v).replace(/(오전|오후)\s*(\d{1,2}):(\d{2})/g,function(x){return to24(x)})}
 function sendLive(){
   var inp=$('#chatIn',top().el);if(!inp)return;var v=inp.value.trim();if(!v)return;var t=thr(inp.dataset.tid);if(!t)return;
+  var hadFocus=document.activeElement===inp;
   startClock();
   addLiveSep(t);if(false){var d=phoneNow();t.items.push({k:'date',v:t.app==='talk'?d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일':'오늘 '+nowLabel()});liveDated[t.id]=1}
   t.items.push({w:'me',k:'text',lv:1,v:v,t:nowLabel()});t.when=nowLabel();inp.value='';drafts[t.id]='';inp.dispatchEvent(new Event('input'));
   refreshChat(t);markChanged(true);aiReply(t);
+  if(hadFocus&&document.activeElement!==inp){try{inp.focus({preventScroll:true})}catch(e){inp.focus()}}
 }
 var FREQ={low:{cool:300000,mult:.2,label:'드물게'},mid:{cool:120000,mult:.35,label:'보통'},high:{cool:45000,mult:.7,label:'자주'}};
 var pingTimer=null,lastPing=0,pingBusy=false,pingCount=0;
@@ -517,17 +522,56 @@ function pingPrompt(t,c){
     '\n\n관계와 감정선, 마지막 대화 흐름, 지금 시각을 생각해서 먼저 연락할 자연스러운 이유를 정하고 말풍선 1~3개를 보내라. 이미 한 말을 반복하지 말고, 이야기의 비밀을 직접 설명하지 마라. 실제 한국어 메신저처럼 짧게.\nJSON 배열만 출력: [{"v":"말풍선 내용"}]';
 }
 function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}reset('home',{},null);push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}
-function placeBanner(){var b=document.querySelector('.pbanner');if(!b||!phoneEl)return;var vv=window.visualViewport,off=0;
-  if(vv){var r=phoneEl.getBoundingClientRect();off=Math.max(0,Math.round(vv.offsetTop-r.top))}
-  b.style.top=off?'calc(var(--sb) + 4px + '+off+'px)':''}
-/* iOS: when the keyboard opens the visible area shrinks and scrolls; pin the phone to exactly that area so the top banner and input stay on screen */
-function fitVV(){var vv=window.visualViewport,d=document.getElementById('device');if(!vv||!d)return;
-  var kb=document.body.classList.contains('full')&&(Math.max(innerHeight,document.documentElement.clientHeight)-vv.height>80);
-  if(kb){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto';d.style.top=vv.offsetTop+'px';d.style.height=vv.height+'px'}
-  else{d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height='';if(window.scrollY||document.documentElement.scrollTop)window.scrollTo(0,0)}
-  placeBanner()}
-if(window.visualViewport){visualViewport.addEventListener('scroll',fitVV);visualViewport.addEventListener('resize',fitVV)}
-addEventListener('scroll',fitVV,{passive:true});document.addEventListener('focusin',function(){[60,250,600].forEach(function(t){setTimeout(fitVV,t)})});document.addEventListener('focusout',function(){[60,250,600,1000].forEach(function(t){setTimeout(fitVV,t)})});addEventListener('orientationchange',function(){setTimeout(fitVV,300)});
+/* ---------- mobile keyboard (iPhone · iPad · Android) ----------
+   Android: the viewport meta asks the browser to shrink the page itself when the keyboard opens (interactive-widget=resizes-content),
+            so the phone simply gets shorter and nothing has to move.
+   iOS:     Safari never shrinks the page; it slides the whole page up instead, which made the screen jump.
+            So the moment the chat box is tapped we already make the phone as short as the keyboard will leave room for
+            (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
+            Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
+var APP_VER='20261013j';
+var vvPinned=false,prePin=false,prePinT=null;
+var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
+function kbGuess(){var v=0;try{v=+localStorage.getItem('phone-kbh-'+(innerWidth>innerHeight?'l':'p'))||0}catch(e){}
+  if(v>120&&v<layoutH()-150)return v;var tablet=Math.min(screen.width,screen.height)>=600;return Math.round(layoutH()*(tablet?(innerWidth>innerHeight?0.5:0.4):(innerWidth>innerHeight?0.62:0.47)))}
+function kbRemember(h){try{localStorage.setItem('phone-kbh-'+(innerWidth>innerHeight?'l':'p'),String(Math.round(h)))}catch(e){}}
+function pinDevice(t,h){var d=document.getElementById('device');if(!d)return;t=Math.max(0,Math.round(t))+'px';h=Math.round(h)+'px';
+  if(d.style.position!=='fixed'){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto'}
+  if(d.style.top!==t)d.style.top=t;if(d.style.height!==h)d.style.height=h}
+function unpinDevice(){var d=document.getElementById('device');if(d&&d.style.position){d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height=''}}
+/* banner always sits at the top of what is visible */
+function placeBanner(){var b=document.querySelector('.pbanner');if(!b||!phoneEl)return;
+  if(vvPinned||prePin||!window.visualViewport){b.style.top='';return}
+  var r=phoneEl.getBoundingClientRect(),off=Math.round(-r.top);
+  b.style.top=(off>0&&off<r.height-120)?'calc(var(--sb) + 4px + '+off+'px)':''}
+/* keep the newest chat bubbles in view when the visible area shrinks (keyboard) or grows back, like a real messenger */
+function anchorChat(){var e=top(),c=e&&e.el&&e.el.querySelector('#cb');if(!c)return;var h=c.clientHeight;
+  if(!c._b){c._b=1;c.addEventListener('scroll',function(){if(c.clientHeight===c._h)c._end=c.scrollTop+c.clientHeight>=c.scrollHeight-40},{passive:true})}
+  if(c._h&&h!==c._h){if(c._end)c.scrollTop=c.scrollHeight;else c.scrollTop+=c._h-h}
+  c._h=h;c._end=c.scrollTop+h>=c.scrollHeight-40}
+function inputFocused(){var a=document.activeElement;return !!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&phoneEl&&phoneEl.contains(a))}
+function fitVV(){var vv=window.visualViewport;if(!vv||!document.getElementById('device'))return;
+  var full=document.body.classList.contains('full'),kb=full&&(layoutH()-vv.height>80);
+  if(kb){prePin=false;clearTimeout(prePinT);pinDevice(vv.offsetTop,vv.height);kbRemember(layoutH()-vv.height)}
+  else if(!prePin)unpinDevice();
+  if(!kb&&!prePin&&!inputFocused()&&(window.scrollY||document.documentElement.scrollTop))window.scrollTo(0,0);
+  vvPinned=kb;placeBanner();anchorChat()}
+function prePinFor(el,atFocus){
+  if(!IS_IOS||!document.body.classList.contains('full')||vvPinned||(!atFocus&&inputFocused())||!el||el.id!=='chatIn')return;
+  anchorChat();prePin=true;pinDevice(0,layoutH()-kbGuess());anchorChat();
+  clearTimeout(prePinT);prePinT=setTimeout(function(){if(!vvPinned){prePin=false;fitVV()}},1300)}
+document.addEventListener('touchend',function(e){var t=e.target;if(t&&t.closest){var inp=t.closest('.ch-in,.tc-in');if(inp)prePinFor(inp.querySelector('#chatIn'))}},{passive:true,capture:true});
+/* while the keyboard slides in or out, follow it every frame */
+var vvTrackUntil=0;
+function trackVV(ms){var go=!vvTrackUntil||Date.now()>vvTrackUntil;vvTrackUntil=Math.max(vvTrackUntil,Date.now()+(ms||900));
+  if(!go)return;(function loop(){fitVV();if(Date.now()<vvTrackUntil)requestAnimationFrame(loop);else vvTrackUntil=0})()}
+if(window.visualViewport){visualViewport.addEventListener('scroll',function(){trackVV(400)});visualViewport.addEventListener('resize',function(){trackVV(900)})}
+addEventListener('scroll',fitVV,{passive:true});
+addEventListener('resize',function(){anchorChat();trackVV(500)});
+document.addEventListener('focusin',function(e){if(IS_IOS&&e.target&&e.target.id==='chatIn'&&!prePin&&!vvPinned)prePinFor(e.target,true);anchorChat();trackVV(1200)});
+document.addEventListener('focusout',function(){setTimeout(function(){if(!inputFocused()){prePin=false;clearTimeout(prePinT)}trackVV(1200)},0)});
+addEventListener('orientationchange',function(){setTimeout(function(){trackVV(600)},200)});
 function showBanner(t,text){
   var old=document.querySelector('.pbanner');if(old)old.remove();
   var b=document.createElement('button');b.className='pbanner';
@@ -995,8 +1039,20 @@ var Cloud={on:false,ready:false,user:null,err:'',
       .then(function(){return self.listMyPlays()}).then(function(ps){return ps.reduce(function(p,m){return p.then(function(){return self.unpublish(m.id)})},Promise.resolve())})
       .then(function(){return u.delete().catch(function(e){if(e&&e.code==='auth/requires-recent-login')return u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()).then(function(){return u.delete()});throw e})})}
 };
-function A_publish(id){flashSet('배포하는 중…');var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
-      src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(){refreshCloudList();flashSet('배포했어요. 아래 링크를 복사해서 보내 주세요.')},function(e){flashSet(fbMsg(e))})}
+var publishing=null;
+function openShare(id){shareOpen=id;
+  if(!(Cloud.cfg()&&Cloud.user)){renderSettings();return}
+  function go(){if(shareOpen!==id)return;if(myPlays&&myPlays[id])renderSettings();else A_publish(id)}
+  if(myPlays){go();return}
+  renderSettings();
+  Cloud.listMyPlays().then(function(a){myPlays={};a.forEach(function(m){myPlays[m.id]=m});go()},function(){myPlays={};go()})}
+function A_publish(id){if(publishing)return;publishing=id;renderSettings();
+  var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
+  src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(ver){
+    publishing=null;myPlays=myPlays||{};var old=myPlays[id]||{};
+    myPlays[id]=Object.assign({},old,{id:id,listed:!!old.listed,version:ver,updatedAt:Date.now()});
+    shareOpen=id;renderSettings();flashSet('배포했어요. 아래 링크를 복사해서 보내 주세요.')},
+  function(e){publishing=null;renderSettings();flashSet(fbMsg(e))})}
 var cloudList=null,exploreList=null,myPlays=null,allPlays=null,armSup=null;
 function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
 function refreshCloudList(){if(!Cloud.user){cloudList=null;myPlays=null;return}Cloud.listMine().then(function(a){cloudList=a;renderSettings()},function(e){cloudErr=fbMsg(e);renderSettings()});
@@ -1408,7 +1464,7 @@ function notifSecHtml(){return '<div class="sec" id="set_notif"><h3>알림</h3><
     '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
     '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
     '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>'}
-function themeSecHtml(){return '<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>'}
+function themeSecHtml(){return '<div class="sec" id="set_theme"><div class="row between"><h3>테마</h3><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p><p class="enote" style="opacity:.6">Snoop 버전 '+APP_VER+'</p></div>'}
 function renderSettings(){
   if(!$('#set')||$('#set').hidden)return;
   var b=$('#setBody'),st=b.scrollTop,h='';
@@ -1437,7 +1493,9 @@ function renderSettings(){
     var acts=(cur?'':'<button class="btn sm" data-t="open" data-id="'+esc(m.id)+'">열기</button>')+'<button class="btn sm" data-t="share" data-id="'+esc(m.id)+'">배포</button><button class="btn sm danger" data-t="del" data-id="'+esc(m.id)+'">'+(armDel===m.id?'정말 삭제':'삭제')+'</button>';
     var share='';
     if(shareOpen===m.id){
-      if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p>';
+      if(publishing===m.id)share='<p class="enote">배포하는 중… 잠시만 기다려 주세요.</p>';
+      else if(Cloud.cfg()&&Cloud.user&&!myPlays)share='<p class="enote">배포 정보를 불러오는 중…</p>';
+      else if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p>';
       else if(!Cloud.user)share='<p class="enote">배포하려면 먼저 위에서 Google로 로그인해 주세요.</p>';
       else if(pl)share='<p class="enote">이 링크로 들어온 사람은 폰 화면만 보고 대화할 수 있어요. 꾸미기·시스템·설정은 보이지 않아요.</p><div class="copyrow"><input readonly value="'+esc(playUrl(m.id))+'" id="shareUrl_'+esc(m.id)+'" aria-label="플레이 링크"><button class="btn sm primary" data-t="copy" data-id="'+esc(m.id)+'">복사</button></div><div class="row"><button class="btn sm'+(stale?' primary':'')+'" data-t="publish" data-id="'+esc(m.id)+'">'+(stale?'고친 내용 다시 배포':'다시 배포')+'</button><a class="btn sm" href="'+esc(playUrl(m.id))+'" target="_blank" rel="noopener">플레이 화면 열기</a><button class="btn sm ghost danger" data-t="unpublish" data-id="'+esc(m.id)+'">배포 중단</button></div><p class="enote">다시 배포하면 이미 보던 사람도 새 버전으로 처음부터 다시 시작해요.</p>';
       else share='<p class="enote">배포하면 플레이 링크가 생겨요. 링크로 들어온 사람은 폰 화면만 즐길 수 있고, 꾸미기·시스템·설정은 볼 수 없어요. 배포한 뒤 고친 내용은 다시 배포해야 반영돼요.</p><div class="row"><button class="btn sm primary" data-t="publish" data-id="'+esc(m.id)+'">배포하기</button></div>';
@@ -1465,8 +1523,7 @@ function setAction(d,el){
     case 'logout':Cloud.signOut();break;
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
     case 'open':openStory(d.id);break;
-    case 'share':if(shareOpen===d.id){shareOpen=null;renderSettings();break}shareOpen=d.id;renderSettings();
-      if(Cloud.cfg()&&Cloud.user&&!(myPlays&&myPlays[d.id]))A_publish(d.id);break;
+    case 'share':if(shareOpen===d.id){shareOpen=null;renderSettings();break}openShare(d.id);break;
     case 'publish':A_publish(d.id);break;
     case 'unpublish':askConfirm({title:'배포를 중단할까요?',msg:'플레이 링크가 더 이상 열리지 않고, 둘러보기에서도 사라져요. 이 폰 자체는 그대로 남아요.',ok:'배포 중단'},function(){Cloud.unpublish(d.id).then(function(){refreshCloudList();flashSet('배포를 중단했어요.')},function(e){flashSet(fbMsg(e))})});break;
     case 'loadAll':Cloud.listAllPlays().then(function(a){allPlays=a;renderSettings()},function(e){flashSet(fbMsg(e))});break;

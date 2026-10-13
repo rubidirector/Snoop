@@ -729,3 +729,9 @@ body.drafting #device{pointer-events:none;filter:grayscale(.5) brightness(.55)}
 .dlg .kd-msg.err{color:var(--danger)}
 .keynote{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin:4px 0 6px}
 .dlg a.hlink2{color:var(--accent-text);font-weight:700;text-decoration:underline;text-underline-offset:3px}
+
+/* mobile app feel: no text-selection popups or link previews on long press inside the phone, no rubber-band page scroll */
+html{overscroll-behavior:none}
+.phone{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.phone input,.phone textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+.phone .sc,#cb{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
