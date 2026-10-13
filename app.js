@@ -517,14 +517,17 @@ function pingPrompt(t,c){
     '\n\n관계와 감정선, 마지막 대화 흐름, 지금 시각을 생각해서 먼저 연락할 자연스러운 이유를 정하고 말풍선 1~3개를 보내라. 이미 한 말을 반복하지 말고, 이야기의 비밀을 직접 설명하지 마라. 실제 한국어 메신저처럼 짧게.\nJSON 배열만 출력: [{"v":"말풍선 내용"}]';
 }
 function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}reset('home',{},null);push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}
-function placeBanner(){}
+function placeBanner(){var b=document.querySelector('.pbanner');if(!b||!phoneEl)return;var vv=window.visualViewport,off=0;
+  if(vv){var r=phoneEl.getBoundingClientRect();off=Math.max(0,Math.round(vv.offsetTop-r.top))}
+  b.style.top=off?'calc(var(--sb) + 4px + '+off+'px)':''}
 /* iOS: when the keyboard opens the visible area shrinks and scrolls; pin the phone to exactly that area so the top banner and input stay on screen */
 function fitVV(){var vv=window.visualViewport,d=document.getElementById('device');if(!vv||!d)return;
-  var kb=document.body.classList.contains('full')&&(innerHeight-vv.height>80);
+  var kb=document.body.classList.contains('full')&&(Math.max(innerHeight,document.documentElement.clientHeight)-vv.height>80);
   if(kb){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto';d.style.top=vv.offsetTop+'px';d.style.height=vv.height+'px'}
-  else{d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height=''}}
+  else{d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height='';if(window.scrollY||document.documentElement.scrollTop)window.scrollTo(0,0)}
+  placeBanner()}
 if(window.visualViewport){visualViewport.addEventListener('scroll',fitVV);visualViewport.addEventListener('resize',fitVV)}
-addEventListener('scroll',fitVV,{passive:true});addEventListener('orientationchange',function(){setTimeout(fitVV,300)});
+addEventListener('scroll',fitVV,{passive:true});document.addEventListener('focusin',function(){[60,250,600].forEach(function(t){setTimeout(fitVV,t)})});document.addEventListener('focusout',function(){[60,250,600,1000].forEach(function(t){setTimeout(fitVV,t)})});addEventListener('orientationchange',function(){setTimeout(fitVV,300)});
 function showBanner(t,text){
   var old=document.querySelector('.pbanner');if(old)old.remove();
   var b=document.createElement('button');b.className='pbanner';
@@ -633,7 +636,8 @@ var CFG=Object.assign({aiProxy:'',allowUserKey:true,textModel:'gemini-3.8-flash'
 var AI_KEY='phone-ai-v1';
 var AIS={key:'',textModel:'',imageModel:'',images:false};
 try{Object.assign(AIS,JSON.parse(localStorage.getItem(AI_KEY)||'{}'))}catch(e){}
-function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
+function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}try{Store.set('ai',JSON.parse(JSON.stringify(AIS)))}catch(e){}}
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 function aiMode(){if(window.PHONE_AI_OVERRIDE)return 'preview';return CFG.aiProxy?'proxy':(CFG.allowUserKey&&AIS.key?'key':null)}
 function textModel(){return CFG.textModel}
 function imageModel(){return AIS.imageModel||CFG.imageModel}
@@ -991,6 +995,8 @@ var Cloud={on:false,ready:false,user:null,err:'',
       .then(function(){return self.listMyPlays()}).then(function(ps){return ps.reduce(function(p,m){return p.then(function(){return self.unpublish(m.id)})},Promise.resolve())})
       .then(function(){return u.delete().catch(function(e){if(e&&e.code==='auth/requires-recent-login')return u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()).then(function(){return u.delete()});throw e})})}
 };
+function A_publish(id){flashSet('배포하는 중…');var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
+      src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(){refreshCloudList();flashSet('배포했어요. 아래 링크를 복사해서 보내 주세요.')},function(e){flashSet(fbMsg(e))})}
 var cloudList=null,exploreList=null,myPlays=null,allPlays=null,armSup=null;
 function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
 function refreshCloudList(){if(!Cloud.user){cloudList=null;myPlays=null;return}Cloud.listMine().then(function(a){cloudList=a;renderSettings()},function(e){cloudErr=fbMsg(e);renderSettings()});
@@ -1431,19 +1437,15 @@ function renderSettings(){
     var acts=(cur?'':'<button class="btn sm" data-t="open" data-id="'+esc(m.id)+'">열기</button>')+'<button class="btn sm" data-t="share" data-id="'+esc(m.id)+'">배포</button><button class="btn sm danger" data-t="del" data-id="'+esc(m.id)+'">'+(armDel===m.id?'정말 삭제':'삭제')+'</button>';
     var share='';
     if(shareOpen===m.id){
-      if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p><div class="row"><button class="btn sm" data-t="exportOne" data-id="'+esc(m.id)+'">파일로 내보내기</button></div>';
+      if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p>';
       else if(!Cloud.user)share='<p class="enote">배포하려면 먼저 위에서 Google로 로그인해 주세요.</p>';
-      else if(pl)share='<p class="enote">이 링크로 들어온 사람은 폰 화면만 보고 대화할 수 있어요. 꾸미기·시스템·설정은 보이지 않아요.</p><div class="copyrow"><input readonly value="'+esc(playUrl(m.id))+'" id="shareUrl_'+esc(m.id)+'" aria-label="플레이 링크"><button class="btn sm primary" data-t="copy" data-id="'+esc(m.id)+'">복사</button></div><label class="ck"><input type="checkbox" data-t="plListed" data-id="'+esc(m.id)+'"'+(pl.listed?' checked':'')+'> 둘러보기 목록에도 올리기</label><div class="row"><button class="btn sm'+(stale?' primary':'')+'" data-t="publish" data-id="'+esc(m.id)+'">'+(stale?'고친 내용 다시 배포':'다시 배포')+'</button><a class="btn sm" href="'+esc(playUrl(m.id))+'" target="_blank" rel="noopener">플레이 화면 열기</a><button class="btn sm ghost danger" data-t="unpublish" data-id="'+esc(m.id)+'">배포 중단</button></div><p class="enote">다시 배포하면 이미 보던 사람도 새 버전으로 처음부터 다시 시작해요.</p>';
-      else share='<p class="enote">배포하면 플레이 링크가 생겨요. 링크로 들어온 사람은 폰 화면만 즐길 수 있고, 꾸미기·시스템·설정은 볼 수 없어요. 배포한 뒤 고친 내용은 다시 배포해야 반영돼요.</p><div class="row"><button class="btn sm primary" data-t="publish" data-id="'+esc(m.id)+'">배포하기</button><button class="btn sm" data-t="exportOne" data-id="'+esc(m.id)+'">파일로 내보내기</button></div>';
+      else if(pl)share='<p class="enote">이 링크로 들어온 사람은 폰 화면만 보고 대화할 수 있어요. 꾸미기·시스템·설정은 보이지 않아요.</p><div class="copyrow"><input readonly value="'+esc(playUrl(m.id))+'" id="shareUrl_'+esc(m.id)+'" aria-label="플레이 링크"><button class="btn sm primary" data-t="copy" data-id="'+esc(m.id)+'">복사</button></div><div class="row"><button class="btn sm'+(stale?' primary':'')+'" data-t="publish" data-id="'+esc(m.id)+'">'+(stale?'고친 내용 다시 배포':'다시 배포')+'</button><a class="btn sm" href="'+esc(playUrl(m.id))+'" target="_blank" rel="noopener">플레이 화면 열기</a><button class="btn sm ghost danger" data-t="unpublish" data-id="'+esc(m.id)+'">배포 중단</button></div><p class="enote">다시 배포하면 이미 보던 사람도 새 버전으로 처음부터 다시 시작해요.</p>';
+      else share='<p class="enote">배포하면 플레이 링크가 생겨요. 링크로 들어온 사람은 폰 화면만 즐길 수 있고, 꾸미기·시스템·설정은 볼 수 없어요. 배포한 뒤 고친 내용은 다시 배포해야 반영돼요.</p><div class="row"><button class="btn sm primary" data-t="publish" data-id="'+esc(m.id)+'">배포하기</button></div>';
       if(Cloud.user&&m.public)share+='<p class="enote">예전 방식의 공유 링크가 아직 켜져 있어요.</p><div class="row"><button class="btn sm ghost danger" data-t="unshare" data-id="'+esc(m.id)+'">예전 공유 링크 끄기</button></div>';
       share='<div class="mcard" style="margin-top:-2px">'+share+'</div>';
     }
     return '<div class="story-row'+(cur?' cur':'')+'"><span class="sw-mini" style="background:'+(WALLS[m.wall]||WALLS.dusk)+'"></span><div class="info"><b>'+esc(m.title||'제목 없음')+'</b><small>'+esc(m.name||'')+' · '+fmtTime(m.updatedAt||Date.now())+'</small>'+(m.concept?'<small>컨셉: '+esc(m.concept.slice(0,60))+'</small>':'')+'<div class="badges">'+badges+'</div></div><div class="acts">'+acts+'</div></div>'+share;
-  }).join('')+'</div><div class="row"><button class="btn sm" data-t="import">파일 불러오기</button><button class="btn sm" data-t="exportCur">지금 폰 파일로 내보내기</button></div></div>';
-  // explore
-  if(Cloud.on){h+='<div class="sec" id="set_explore"><div class="row between"><h3>둘러보기</h3><button class="btn sm" data-t="loadExplore">'+(exploreList?'새로고침':'공개된 폰 보기')+'</button></div><p class="enote">관리자들이 배포하고 둘러보기에 올린 폰이에요. 누르면 플레이 화면으로 열려요.</p>';
-    if(exploreList)h+='<div class="list">'+(exploreList.map(function(m){return '<a class="story-row" style="text-decoration:none;color:inherit" href="'+esc(playUrl(m.id))+'"><span class="sw-mini" style="background:'+(WALLS[m.wall]||WALLS.dusk)+'"></span><div class="info"><b>'+esc(m.title)+'</b><small>'+esc(m.summary.slice(0,70))+'</small><small>만든 사람 '+esc(m.ownerName||'익명')+' · '+fmtTime(m.updatedAt)+'</small></div></a>'}).join('')||'<p class="empty">아직 올라온 폰이 없어요.</p>')+'</div>';
-    h+='</div>'}
+  }).join('')+'</div></div>';
   h+=aiSecHtml(false)+notifSecHtml()+themeSecHtml();
   // danger
   h+='<div class="sec" id="set_danger"><h3>데이터 · 계정 삭제</h3><div class="danger-zone">'+
@@ -1463,9 +1465,9 @@ function setAction(d,el){
     case 'logout':Cloud.signOut();break;
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
     case 'open':openStory(d.id);break;
-    case 'share':shareOpen=shareOpen===d.id?null:d.id;renderSettings();break;
-    case 'publish':(function(id){flashSet('배포하는 중…');var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
-      src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(){refreshCloudList();flashSet('배포했어요. 플레이 링크를 복사해서 보내 주세요.')},function(e){flashSet(fbMsg(e))})})(d.id);break;
+    case 'share':if(shareOpen===d.id){shareOpen=null;renderSettings();break}shareOpen=d.id;renderSettings();
+      if(Cloud.cfg()&&Cloud.user&&!(myPlays&&myPlays[d.id]))A_publish(d.id);break;
+    case 'publish':A_publish(d.id);break;
     case 'unpublish':askConfirm({title:'배포를 중단할까요?',msg:'플레이 링크가 더 이상 열리지 않고, 둘러보기에서도 사라져요. 이 폰 자체는 그대로 남아요.',ok:'배포 중단'},function(){Cloud.unpublish(d.id).then(function(){refreshCloudList();flashSet('배포를 중단했어요.')},function(e){flashSet(fbMsg(e))})});break;
     case 'loadAll':Cloud.listAllPlays().then(function(a){allPlays=a;renderSettings()},function(e){flashSet(fbMsg(e))});break;
     case 'supList':Cloud.setPlay(d.id,{listed:d.v==='1'}).then(function(){allPlays.forEach(function(m){if(m.id===d.id)m.listed=d.v==='1'});renderSettings()},function(e){flashSet(fbMsg(e))});break;
@@ -1483,7 +1485,7 @@ function setAction(d,el){
     case 'clearKey':AIS.key='';saveAIS();aiTestMsg='';renderSettings();renderSide();break;
     case 'aiTest':if(!aiMode()){aiTestMsg='먼저 키를 넣어 주세요.';renderSettings();break}aiTestMsg='확인 중…';renderSettings();AI.text('연결 확인입니다. "확인"이라고만 답하세요.').then(function(){aiTestMsg='정상이에요'},function(e){aiTestMsg=aiErrMsg(e)}).then(function(){renderSettings();renderSide()});break;
     case 'theme':themePref=d.v;try{localStorage.setItem(THEME_KEY,themePref)}catch(e){}applyTheme();renderSettings();break;
-    case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return switchTo(exampleStory())}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
+    case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}Store.del('ai');AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return switchTo(exampleStory())}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
     case 'delAcct':if(!armAcct){armAcct=true;renderSettings();break}armAcct=false;flashSet('계정을 삭제하는 중…');Cloud.deleteAccount().then(function(){cloudList=null;flashSet('계정을 삭제했어요. 이 기기에 있는 폰은 남아 있어요.');renderSettings()},function(e){flashSet(fbMsg(e))});break;
   }
 }
@@ -1551,7 +1553,10 @@ function boot(){
   build();applyTheme();
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
   var cloudP=Cloud.init();
-  Lib.load().then(function(){
+  Store.get('ai').then(function(a){
+    if(a&&a.key&&!AIS.key){Object.assign(AIS,a);try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
+    else if(AIS.key&&!(a&&a.key))Store.set('ai',JSON.parse(JSON.stringify(AIS)))
+  }).catch(function(){}).then(function(){return Lib.load()}).then(function(){
     if(Lib.metas.length)return;
     return Store.get('story').then(function(old){if(old&&old.owner){old.id=old.id||newId();return Lib.put(normalize(old)).then(function(){setCur(old.id);return Store.del('story')})}});
   }).then(function(){
