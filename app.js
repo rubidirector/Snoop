@@ -526,10 +526,10 @@ function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}r
    Android: the viewport meta asks the browser to shrink the page itself when the keyboard opens (interactive-widget=resizes-content),
             so the phone simply gets shorter and nothing has to move.
    iOS:     Safari never shrinks the page; it slides the whole page up instead, which made the screen jump.
-            So the moment the chat box is tapped we already make the phone as short as the keyboard will leave room for
+            So the moment the chat box gets focus (never earlier, or the tap would miss the box) we already make the phone as short as the keyboard will leave room for
             (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
             Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
-var APP_VER='20261013j';
+var APP_VER='20261013k';
 var vvPinned=false,prePin=false,prePinT=null;
 var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
@@ -561,7 +561,6 @@ function prePinFor(el,atFocus){
   if(!IS_IOS||!document.body.classList.contains('full')||vvPinned||(!atFocus&&inputFocused())||!el||el.id!=='chatIn')return;
   anchorChat();prePin=true;pinDevice(0,layoutH()-kbGuess());anchorChat();
   clearTimeout(prePinT);prePinT=setTimeout(function(){if(!vvPinned){prePin=false;fitVV()}},1300)}
-document.addEventListener('touchend',function(e){var t=e.target;if(t&&t.closest){var inp=t.closest('.ch-in,.tc-in');if(inp)prePinFor(inp.querySelector('#chatIn'))}},{passive:true,capture:true});
 /* while the keyboard slides in or out, follow it every frame */
 var vvTrackUntil=0;
 function trackVV(ms){var go=!vvTrackUntil||Date.now()>vvTrackUntil;vvTrackUntil=Math.max(vvTrackUntil,Date.now()+(ms||900));
