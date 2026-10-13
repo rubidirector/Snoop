@@ -721,3 +721,11 @@ body.drafting #device{pointer-events:none;filter:grayscale(.5) brightness(.55)}
 .phone input:focus,.phone input:focus-visible,.phone textarea:focus,.phone textarea:focus-visible,.phone [contenteditable]:focus{outline:none!important;box-shadow:none}
 .phone input,.phone textarea{-webkit-tap-highlight-color:transparent}
 .pbanner{touch-action:none;user-select:none;-webkit-user-select:none}
+
+.keydlg input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--field);color:var(--ink);font:inherit;font-size:16px}
+.keydlg input:focus{outline:none;border-color:var(--accent)}
+.kd-steps{margin:0;padding-left:20px;font-size:14px;line-height:1.8;color:var(--ink)}
+.dlg .kd-msg{font-size:13px}
+.dlg .kd-msg.err{color:var(--danger)}
+.keynote{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin:4px 0 6px}
+.dlg a.hlink2{color:var(--accent-text);font-weight:700;text-decoration:underline;text-underline-offset:3px}

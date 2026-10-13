@@ -372,8 +372,9 @@ function loadBase(){baseThreads=null;if(!canEdit||!S.id)return Promise.resolve()
 var draftMode=false,playS=null,forceClose=false;
 function playing(){return !!clk()}
 function setDraftUi(){document.body.classList.toggle('drafting',draftMode);var n=$('#edNote');if(n)n.hidden=!draftMode}
-function beginDraft(){if(draftMode||!canEdit||viewMode||!playing())return;playS=S;S=JSON.parse(JSON.stringify(S));S.threads=stripLive(S.threads);draftMode=true;edThread=null;setDraftUi()}
-function endDraft(apply){if(!draftMode)return;if(!apply)S=playS;playS=null;draftMode=false;setDraftUi()}
+var playBase=null;
+function beginDraft(){if(draftMode||!canEdit||viewMode||!playing())return;playS=S;playBase=baseThreads;baseThreads=baseThreads?JSON.parse(JSON.stringify(baseThreads)):null;S=JSON.parse(JSON.stringify(S));S.threads=stripLive(S.threads);draftMode=true;edThread=null;setDraftUi()}
+function endDraft(apply){if(!draftMode)return;if(!apply){S=playS;baseThreads=playBase;if(baseThreads&&canEdit&&S.id)Store.set('base:'+S.id,{threads:baseThreads})}playS=null;playBase=null;draftMode=false;setDraftUi()}
 function applyRestart(){edDirty=false;endDraft(true);restartStory();forceClose=true;closeEditor();forceClose=false;closeSettings();closeSheet();toast('처음부터 다시 시작했어요')}
 function askLeave(){askConfirm({title:'고친 내용을 반영할까요?',msg:'하던 대화는 그대로 남아 있어요. 고친 내용은 처음부터 다시 시작해야 폰에 반영돼요.',ok:'처음부터 다시 시작',no:'수정 버리고 닫기'},applyRestart,function(){endDraft(false);saveLocal();forceClose=true;closeEditor();forceClose=false;rebuild();renderSide()})}
 function restartStory(){
@@ -384,6 +385,33 @@ function restartStory(){
   if(!$('#ed').hidden)renderEditor();
   renderSide();
 }
+/* each person registers their own Gemini key; it stays in this browser and is never published */
+function keyAskable(){return !aiMode()&&!CFG.aiProxy&&CFG.allowUserKey&&!window.PHONE_AI_OVERRIDE}
+function keyAskKey(){return 'phone-keyask:'+(playerMode?'play':'admin')}
+function openKeyDlg(why,done){
+  closeDlg();var bg=document.createElement('div');bg.className='dlg-bg';bg.id='dlg';
+  var who=playerMode?'폰 속 인물들과 대화하려면 내 Gemini API 키를 등록해 주세요. 무료로 만들 수 있어요. 키가 없어도 폰은 둘러볼 수 있어요.':'AI로 폰 채우기·대화 생성·답장을 쓰려면 내 Gemini API 키를 등록해 주세요. 무료로 만들 수 있어요.';
+  bg.innerHTML='<div class="dlg keydlg" role="dialog" aria-modal="true" aria-labelledby="kdT"><h3 id="kdT">내 API 키 등록</h3><p>'+esc(why||who)+'</p>'+
+    '<ol class="kd-steps"><li><a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio 열기 ↗</a></li><li>"API 키 만들기"를 누르고 키를 복사</li><li>아래 칸에 붙여넣기</li></ol>'+
+    '<input id="kdIn" type="password" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false" value="'+esc(AIS.key)+'">'+
+    '<p class="kd-msg" id="kdMsg">키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 다른 사람(관리자·사용자)에게 공유되지 않아요.</p>'+
+    '<div class="btns two"><button class="btn" data-d="later">나중에</button><button class="btn primary" data-d="save">등록</button></div></div>';
+  document.body.appendChild(bg);hpush('dlg');
+  try{localStorage.setItem(keyAskKey(),'1')}catch(e){}
+  var inp=bg.querySelector('#kdIn'),msg=bg.querySelector('#kdMsg'),save=bg.querySelector('[data-d="save"]');
+  function finish(){closeDlg();renderSide();renderSettings();if(done)done()}
+  bg.addEventListener('click',function(e){var d=e.target.dataset&&e.target.dataset.d;
+    if(e.target===bg||d==='later'){closeDlg();return}
+    if(d==='save'){var k=inp.value.trim();if(!k){msg.textContent='키를 붙여넣어 주세요.';msg.className='kd-msg err';return}
+      AIS.key=k;saveAIS();save.disabled=true;msg.className='kd-msg';msg.textContent='확인 중…';
+      AI.text('연결 확인입니다. "확인"이라고만 답하세요.').then(function(){msg.textContent='등록됐어요.';setTimeout(finish,500)},
+        function(err){save.disabled=false;
+          if(err&&(err.code==='busy'||err.code==='rate_limited')){msg.textContent='키는 저장했어요. 지금 Gemini가 붐벼서 확인만 못 했어요.';setTimeout(finish,1400);return}
+          msg.className='kd-msg err';msg.textContent=aiErrMsg(err)})}});
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.isComposing){e.preventDefault();save.click()}});
+  setTimeout(function(){inp.focus()},60);
+}
+function maybeAskKey(){if(!keyAskable())return;var asked=false;try{asked=localStorage.getItem(keyAskKey())==='1'}catch(e){}if(asked)return;setTimeout(function(){if(keyAskable()&&!$('#dlg'))openKeyDlg()},1800)}
 function closeDlg(fromHist){var d=$('#dlg');if(!d)return;if(!fromHist&&hback('dlg'))return;d.remove()}
 function askConfirm(o,cb,cb2){
   closeDlg();var bg=document.createElement('div');bg.className='dlg-bg';bg.id='dlg';
@@ -489,9 +517,14 @@ function pingPrompt(t,c){
     '\n\n관계와 감정선, 마지막 대화 흐름, 지금 시각을 생각해서 먼저 연락할 자연스러운 이유를 정하고 말풍선 1~3개를 보내라. 이미 한 말을 반복하지 말고, 이야기의 비밀을 직접 설명하지 마라. 실제 한국어 메신저처럼 짧게.\nJSON 배열만 출력: [{"v":"말풍선 내용"}]';
 }
 function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}reset('home',{},null);push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}
-function placeBanner(){var b=document.querySelector('.pbanner'),vv=window.visualViewport;if(!b)return;var off=0;if(vv){var r=phoneEl.getBoundingClientRect();off=Math.max(0,vv.offsetTop-r.top)}b.style.marginTop=off+'px'}
-if(window.visualViewport){visualViewport.addEventListener('scroll',placeBanner);visualViewport.addEventListener('resize',placeBanner)}
-addEventListener('scroll',placeBanner,{passive:true});
+function placeBanner(){}
+/* iOS: when the keyboard opens the visible area shrinks and scrolls; pin the phone to exactly that area so the top banner and input stay on screen */
+function fitVV(){var vv=window.visualViewport,d=document.getElementById('device');if(!vv||!d)return;
+  var kb=document.body.classList.contains('full')&&(innerHeight-vv.height>80);
+  if(kb){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto';d.style.top=vv.offsetTop+'px';d.style.height=vv.height+'px'}
+  else{d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height=''}}
+if(window.visualViewport){visualViewport.addEventListener('scroll',fitVV);visualViewport.addEventListener('resize',fitVV)}
+addEventListener('scroll',fitVV,{passive:true});addEventListener('orientationchange',function(){setTimeout(fitVV,300)});
 function showBanner(t,text){
   var old=document.querySelector('.pbanner');if(old)old.remove();
   var b=document.createElement('button');b.className='pbanner';
@@ -565,7 +598,8 @@ function catchUp(){
 }
 var replyBusy={};
 function aiReply(t){
-  if(replyBusy[t.id]||!aiMode())return;
+  if(!aiMode()){if(keyAskable())openKeyDlg('답장을 받으려면 내 Gemini API 키를 등록해 주세요. 무료로 만들 수 있어요.');return}
+  if(replyBusy[t.id])return;
   replyBusy[t.id]=1;
   setTimeout(function(){if(replyBusy[t.id]){typingFor[t.id]=1;refreshChat(t)}},700);
   var others=t.members.filter(function(m){return m!==S.owner.name});
@@ -771,6 +805,12 @@ addEventListener('popstate',function(){
 
 /* ---------- outer page ---------- */
 var viewMode=false,canEdit=true,viewInfo=null;
+/* player: someone who opened a published link. They only see and use the phone. */
+var playerMode=false,playKey=null,pubStory=null,pubVer=0,playSaveT=null;
+function savePlay(){if(!playerMode||!playKey)return;clearTimeout(playSaveT);playSaveT=setTimeout(function(){var d=JSON.parse(JSON.stringify(S));delete d.images;Store.set('play:'+playKey,{version:pubVer,story:d,at:Date.now()})},500)}
+function playerRestart(){if(!pubStory)return;var d=JSON.parse(JSON.stringify(pubStory));d.id='pl-'+playKey;S=normalize(d);
+  drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;baseThreads=null;
+  resetClock();relock();clearTimeout(playSaveT);Store.del('play:'+playKey);closeSheet();renderSide();toast('처음부터 다시 시작했어요')}
 function renderStatus(){
   var o=S.owner,low=o.battery<=20;
   $('#sb').innerHTML='<span class="sb-time">'+esc(phoneTime())+'</span><span class="island" data-a="island" title="상황 설명"></span><span class="sb-ic"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor" opacity=".35"/></svg><svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 11.5L5.6 9a3.4 3.4 0 014.8 0zM3.6 7a6.2 6.2 0 018.8 0l-1.4 1.4a4.2 4.2 0 00-6 0zM1.2 4.6a9.6 9.6 0 0113.6 0l-1.4 1.4a7.6 7.6 0 00-10.8 0z" fill="currentColor"/></svg><span class="bat'+(low?' low':'')+'"><i style="width:'+o.battery+'%"></i><b>'+o.battery+'</b></span></span>';
@@ -778,6 +818,9 @@ function renderStatus(){
 function sideHtml(){
   var o=S.owner,sc=S.scenario;
   var by=viewMode&&viewInfo&&viewInfo.ownerName?' · 만든 사람 '+esc(viewInfo.ownerName):'';
+  if(playerMode)return '<div class="eyebrow">Snoop</div><h1>'+esc(sc.title||(o.name+'의 폰'))+'</h1><p class="who">'+esc(o.name)+'의 휴대전화'+by+'</p>'+(sc.text?'<p class="story">'+esc(sc.text)+'</p>':'')+
+    (keyAskable()?'<div class="keynote"><p class="enote">폰 속 인물들과 대화하려면 내 Gemini API 키가 필요해요.</p><button class="btn sm primary" data-s="keydlg">내 API 키 등록</button></div>':'')+
+    '<div class="btns two"><button class="btn primary" data-s="settings">설정</button><button class="btn" data-s="relock">처음부터 다시 보기</button></div>';
   return '<div class="eyebrow">'+(viewMode?'공유받은 폰':'지금 보고 있는 폰')+'</div><h1>'+esc(sc.title||(o.name+'의 폰'))+'</h1><p class="who">'+esc(o.name)+'의 휴대전화 · 배터리 '+o.battery+'%'+by+'</p>'+
     (sc.text?'<p class="story">'+esc(sc.text)+'</p>':'')+
     '<div class="btns two">'+(viewMode?'<button class="btn primary" data-s="copy">이 폰 복사해서 꾸미기</button>':'<button class="btn primary" data-s="edit">폰 꾸미기</button>')+'<button class="btn" data-s="relock">처음부터 다시 시작</button></div>';
@@ -828,7 +871,7 @@ var phoneT,storeT,savedAt=null,saveFail=false,cloudT,cloudAt=null,cloudErr='';
 var edDirty=false;
 function updateEdGo(){var b=$('#edGo');if(!b)return;b.textContent=edDirty?'처음부터 시작':'닫기';b.dataset.e=edDirty?'close':'leave';b.classList.toggle('primary',edDirty)}
 function markChanged(noPhone){
-  if(!canEdit)return;if(!$('#ed').hidden&&!edDirty){edDirty=true;updateEdGo()}
+  if(!canEdit){savePlay();return}if(!$('#ed').hidden&&!edDirty){edDirty=true;updateEdGo()}
   clearTimeout(storeT);storeT=setTimeout(saveLocal,700);
   if(!noPhone&&!draftMode){clearTimeout(phoneT);phoneT=setTimeout(function(){rebuild();renderSide()},220)}
 }
@@ -845,6 +888,8 @@ function scheduleCloud(){clearTimeout(cloudT);cloudT=setTimeout(function(){var s
   cloudErr=fbMsg(e);updateFoot()})},5000)}
 function switchTo(data,opts){
   clearTimeout(storeT);
+  if(draftMode){draftMode=false;playS=null;playBase=null;setDraftUi()}edDirty=false;
+  if(!$('#ed').hidden){forceClose=true;closeEditor();forceClose=false}
   S=normalize(JSON.parse(JSON.stringify(data)));if(!S.id)S.id=newId();baseThreads=null;loadBase();
   setCur(S.id);edThread=null;fillSel=null;
   relock();renderStatus();renderSide();
@@ -907,16 +952,51 @@ var Cloud={on:false,ready:false,user:null,err:'',
     .catch(function(e){if(e&&e.code==='permission-denied')throw {code:'not_found'};throw e})},
   metaFrom:function(doc){var d=doc.data(),t=d.updatedAt&&d.updatedAt.toMillis?d.updatedAt.toMillis():Date.now();return {id:doc.id,title:d.title,name:d.name,wall:d.wall,concept:d.concept||'',summary:d.summary||'',ownerName:d.ownerName||'',public:!!d.public,listed:!!d.listed,updatedAt:t}},
   listMine:function(){var self=this;if(!self.user)return Promise.resolve([]);return self.db.collection('stories').where('owner','==',self.user.uid).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.metaFrom(d))});return a})},
-  explore:function(){var self=this;return self.db.collection('stories').where('public','==',true).where('listed','==',true).limit(60).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.metaFrom(d))});return a.sort(function(x,y){return y.updatedAt-x.updatedAt})})},
+  explore:function(){var self=this;return self.db.collection('plays').where('listed','==',true).limit(60).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.playMeta(d))});return a.sort(function(x,y){return y.updatedAt-x.updatedAt})})},
   setShare:function(id,patch){return this.ref(id).update(patch)},
+  /* published copies that players open with ?play=<id> */
+  playRef:function(id){return this.db.collection('plays').doc(id)},
+  publish:function(story){
+    var self=this,u=self.user;if(!u)return Promise.reject({code:'login'});
+    var data=JSON.parse(JSON.stringify(story)),imgs=data.images||{};delete data.images;delete data.savedAt;
+    data.threads=stripLive(data.threads).map(function(t){delete t.lv;t.items.forEach(function(i){delete i.lv});return t});
+    var json=JSON.stringify(data);if(json.length>900000)return Promise.reject({code:'too_big'});
+    var ref=self.playRef(story.id),FV=firebase.firestore.FieldValue,ids=Object.keys(imgs),ver=Date.now();
+    return ref.get().then(function(snap){
+      if(snap.exists&&snap.data().owner!==u.uid)throw {code:'not_owner'};
+      var prev=snap.exists?arr(snap.data().imageIds):[];
+      var keep=prev.filter(function(id){return ids.indexOf(id)>=0});
+      var doc={owner:u.uid,ownerName:u.displayName||'',ownerEmail:u.email||'',title:data.scenario.title||(data.owner.name+'의 폰'),name:data.owner.name,summary:str(data.scenario.text).slice(0,160),wall:data.owner.wall,data:json,imageIds:keep,version:ver,updatedAt:FV.serverTimestamp()};
+      if(!snap.exists){doc.listed=false;doc.createdAt=FV.serverTimestamp()}
+      return ref.set(doc,{merge:true}).then(function(){
+        var add=ids.filter(function(id){return prev.indexOf(id)<0}),del=prev.filter(function(id){return ids.indexOf(id)<0});
+        return add.reduce(function(p,id){return p.then(function(){return ref.collection('images').doc(id).set({d:imgs[id]})})},Promise.resolve())
+          .then(function(){return Promise.all(del.map(function(id){return ref.collection('images').doc(id).delete()}))})
+          .then(function(){return ref.update({imageIds:ids})});
+      }).then(function(){return ver});
+    });
+  },
+  unpublish:function(id){var ref=this.playRef(id);return ref.collection('images').get().then(function(qs){var ps=[];qs.forEach(function(d){ps.push(d.ref.delete())});return Promise.all(ps)}).then(function(){return ref.delete()})},
+  fetchPlay:function(id){var ref=this.playRef(id);
+    return ref.get().then(function(snap){if(!snap.exists)throw {code:'not_found'};var d=snap.data(),story=JSON.parse(d.data);story.images={};
+      return ref.collection('images').get().then(function(qs){qs.forEach(function(doc){story.images[doc.id]=doc.data().d});return {story:story,info:{version:d.version||0,owner:d.owner,ownerName:d.ownerName||'',listed:!!d.listed}}})})
+    .catch(function(e){if(e&&e.code==='permission-denied')throw {code:'not_found'};throw e})},
+  playMeta:function(doc){var d=doc.data(),t=d.updatedAt&&d.updatedAt.toMillis?d.updatedAt.toMillis():(d.version||Date.now());return {id:doc.id,title:d.title||'제목 없음',name:d.name||'',wall:d.wall,summary:d.summary||'',ownerName:d.ownerName||'',ownerEmail:d.ownerEmail||'',owner:d.owner,listed:!!d.listed,updatedAt:t,version:d.version||0}},
+  listMyPlays:function(){var self=this;if(!self.user)return Promise.resolve([]);return self.db.collection('plays').where('owner','==',self.user.uid).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.playMeta(d))});return a})},
+  listAllPlays:function(){var self=this;return self.db.collection('plays').limit(500).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.playMeta(d))});return a.sort(function(x,y){return y.updatedAt-x.updatedAt})})},
+  setPlay:function(id,patch){return this.playRef(id).update(patch)},
   remove:function(id){var ref=this.ref(id);return ref.collection('images').get().then(function(qs){var ps=[];qs.forEach(function(d){ps.push(d.ref.delete())});return Promise.all(ps)}).then(function(){return ref.delete()})},
   deleteAccount:function(){var self=this,u=self.user;
     return self.listMine().then(function(ms){return ms.reduce(function(p,m){return p.then(function(){return self.remove(m.id)})},Promise.resolve())})
+      .then(function(){return self.listMyPlays()}).then(function(ps){return ps.reduce(function(p,m){return p.then(function(){return self.unpublish(m.id)})},Promise.resolve())})
       .then(function(){return u.delete().catch(function(e){if(e&&e.code==='auth/requires-recent-login')return u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()).then(function(){return u.delete()});throw e})})}
 };
-var cloudList=null,exploreList=null;
+var cloudList=null,exploreList=null,myPlays=null,allPlays=null,armSup=null;
 function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
-function refreshCloudList(){if(!Cloud.user){cloudList=null;return}Cloud.listMine().then(function(a){cloudList=a;renderSettings()},function(e){cloudErr=fbMsg(e);renderSettings()})}
+function refreshCloudList(){if(!Cloud.user){cloudList=null;myPlays=null;return}Cloud.listMine().then(function(a){cloudList=a;renderSettings()},function(e){cloudErr=fbMsg(e);renderSettings()});
+  Cloud.listMyPlays().then(function(a){myPlays={};a.forEach(function(m){myPlays[m.id]=m});renderSettings()},function(){myPlays={}})}
+function isSuper(){var u=Cloud.user;return !!(u&&u.email&&arr(CFG.superAdmins).map(function(x){return String(x).toLowerCase()}).indexOf(String(u.email).toLowerCase())>=0)}
+function playUrl(id){return (CFG.playBase||(location.origin+location.pathname))+'?play='+encodeURIComponent(id)}
 function shareUrl(id){return location.origin+location.pathname+'?p='+encodeURIComponent(id)}
 
 /* ---------- editor ---------- */
@@ -938,7 +1018,7 @@ function renderEditor(){
 }
 function startProg(){aiProg=4;clearInterval(progT);progT=setInterval(function(){aiProg=Math.min(93,aiProg+(93-aiProg)*.045);var p=$('#busyProg');if(p)p.style.width=aiProg+'%'},500)}
 function stopProg(){clearInterval(progT)}
-function needAI(){if(aiMode())return true;flash(aiErrMsg({code:'no_ai'}),true);openSettings('ai');return false}
+function needAI(){if(aiMode())return true;if(keyAskable())openKeyDlg();else{flash(aiErrMsg({code:'no_ai'}),true);openSettings('ai')}return false}
 function F(label,inner,help){return '<label class="fl"><span>'+label+'</span>'+inner+(help?'<small>'+help+'</small>':'')+'</label>'}
 function inp(path,ph,extra){return '<input data-f="'+path+'" value="'+esc(getPath(S,path))+'" placeholder="'+esc(ph||'')+'"'+(extra||'')+'>'}
 function ta(path,ph,rows){return '<textarea data-f="'+path+'" rows="'+(rows||3)+'" placeholder="'+esc(ph||'')+'">'+esc(getPath(S,path))+'</textarea>'}
@@ -1308,9 +1388,25 @@ function mergedStories(){
   arr(cloudList).forEach(function(c){var m=map[c.id]||{};map[c.id]=Object.assign({},c,m,{cloud:true,public:c.public,listed:c.listed,local:!!m.local,updatedAt:Math.max(m.updatedAt||0,c.updatedAt||0)})});
   return Object.keys(map).map(function(k){return map[k]}).sort(function(a,b){return b.updatedAt-a.updatedAt});
 }
+function aiSecHtml(player){var h='<div class="sec" id="set_ai"><h3>'+(player?'내 API 키 (AI 답장)':'내 API 키 · AI')+'</h3>';
+  if(aiMode()==='preview')h+='<p class="enote">'+esc(window.PHONE_AI_OVERRIDE.note||'')+'</p>';
+  else if(CFG.aiProxy)h+='<p class="enote">'+(player?'인물들이 자동으로 답장해요. 따로 설정할 건 없어요.':'이 사이트는 서버를 통해 Gemini에 연결돼요. 따로 키를 넣지 않아도 돼요.')+'</p>';
+  else if(!CFG.allowUserKey)h+='<p class="enote">이 사이트는 AI 기능을 꺼 두었어요.</p>';
+  else{
+    h+='<p class="enote">'+(player?'폰 속 인물들과 대화하려면 내 Gemini API 키가 필요해요. 무료로 만들 수 있어요. 키가 없어도 폰은 그대로 둘러볼 수 있어요.':'AI 기능은 각자 자기 Gemini API 키로 써요. 배포한 폰을 보는 사용자도 각자 자기 키를 등록해요. 내 키는 배포 데이터에 들어가지 않아서 사용자에게 공유되지 않아요.')+'</p>';
+    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.');
+    if(!player)h+='<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
+  h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">'+(CFG.aiProxy?'연결됨':'키 입력됨')+'</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
+  return h}
+function notifSecHtml(){return '<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
+    '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
+    '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
+    '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>'}
+function themeSecHtml(){return '<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>'}
 function renderSettings(){
   if(!$('#set')||$('#set').hidden)return;
   var b=$('#setBody'),st=b.scrollTop,h='';
+  if(playerMode){b.innerHTML=aiSecHtml(true)+notifSecHtml()+themeSecHtml();b.scrollTop=st;return}
   // account
   h+='<div class="sec" id="set_account"><h3>계정</h3>';
   if(!Cloud.cfg())h+='<p class="enote">이 사이트에는 아직 로그인 기능이 설정되지 않았어요. 지금은 만든 폰이 이 기기에만 저장돼요. 사이트 주인이 config.js에 Firebase 정보를 넣으면 Google 로그인과 공유 링크를 쓸 수 있어요.</p>';
@@ -1318,46 +1414,37 @@ function renderSettings(){
   else if(!Cloud.on)h+='<p class="enote">'+esc(Cloud.err||'로그인 기능을 쓸 수 없어요.')+'</p>';
   else if(!Cloud.user&&/KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(|Line\//i.test(navigator.userAgent))h+='<p class="enote" style="color:var(--danger)">카카오톡·인스타그램 같은 앱 안의 브라우저에서는 Google이 로그인을 막아요. 오른쪽 위 메뉴(⋮ 또는 공유)에서 Safari나 Chrome 같은 다른 브라우저로 열어 주세요.</p>';
   else if(!Cloud.user)h+='<p class="enote">로그인하면 만든 폰이 계정에 저장되고, 다른 기기에서도 이어서 만들고, 링크로 공유할 수 있어요.</p><div class="row"><button class="gbtn" data-t="login"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Google로 로그인</button></div>'+(Cloud.err?'<p class="enote" style="color:var(--danger)">'+esc(Cloud.err)+'</p>':'');
-  else{var u=Cloud.user;h+='<div class="acct">'+(u.photoURL?'<img src="'+esc(u.photoURL)+'" alt="" referrerpolicy="no-referrer">':'<span class="ph-av"></span>')+'<div><b>'+esc(u.displayName||'이름 없음')+'</b><small>'+esc(u.email||'')+'</small></div><button class="btn sm" data-t="logout">로그아웃</button></div>'}
+  else{var u=Cloud.user;h+='<div class="acct">'+(u.photoURL?'<img src="'+esc(u.photoURL)+'" alt="" referrerpolicy="no-referrer">':'<span class="ph-av"></span>')+'<div><b>'+esc(u.displayName||'이름 없음')+' <span class="bdg pub">'+(isSuper()?'총관리자':'관리자')+'</span></b><small>'+esc(u.email||'')+'</small></div><button class="btn sm" data-t="logout">로그아웃</button></div>'}
   h+='</div>';
+  if(isSuper()){
+    h+='<div class="sec" id="set_super"><div class="row between"><h3>총관리자</h3><button class="btn sm" data-t="loadAll">'+(allPlays?'새로고침':'전체 배포 보기')+'</button></div><p class="enote">모든 관리자가 배포한 폰이에요. 문제가 있는 폰은 둘러보기에서 내리거나 배포를 중단할 수 있어요.</p>';
+    if(allPlays){var own={};allPlays.forEach(function(m){own[m.owner]=1});
+      h+='<p class="enote">관리자 '+Object.keys(own).length+'명 · 배포 '+allPlays.length+'개 · 둘러보기 '+allPlays.filter(function(m){return m.listed}).length+'개</p><div class="list">'+(allPlays.map(function(m){
+        return '<div class="story-row"><span class="sw-mini" style="background:'+(WALLS[m.wall]||WALLS.dusk)+'"></span><div class="info"><b>'+esc(m.title)+'</b><small>'+esc(m.ownerName||'이름 없음')+(m.ownerEmail?' · '+esc(m.ownerEmail):'')+'</small><small>'+fmtTime(m.updatedAt)+'</small><div class="badges">'+(m.listed?'<span class="bdg pub">둘러보기</span>':'<span class="bdg">링크만</span>')+'</div></div><div class="acts"><a class="btn sm" href="'+esc(playUrl(m.id))+'">열기</a><button class="btn sm" data-t="supList" data-id="'+esc(m.id)+'" data-v="'+(m.listed?'0':'1')+'">'+(m.listed?'둘러보기 내리기':'둘러보기 올리기')+'</button><button class="btn sm danger" data-t="supDel" data-id="'+esc(m.id)+'">'+(armSup===m.id?'정말 중단':'배포 중단')+'</button></div></div>'}).join('')||'<p class="empty">아직 배포된 폰이 없어요.</p>')+'</div>'}
+    h+='</div>'}
   // my phones
   var list=mergedStories();
   h+='<div class="sec" id="set_mine"><div class="row between"><h3>내가 만든 폰 '+list.length+'</h3><span class="row"><button class="btn sm primary" data-t="newBlank">+ 빈 폰</button><button class="btn sm" data-t="newEx">+ 예시로 시작</button></span></div>';
   if(Cloud.user&&cloudList===null)h+='<p class="enote">계정에 저장된 폰을 불러오는 중…</p>';
   h+='<div class="list">'+list.map(function(m){
-    var cur=m.id===S.id,badges=(m.local?'<span class="bdg">이 기기</span>':'')+(m.cloud?'<span class="bdg">계정</span>':'')+(m.public?'<span class="bdg pub">'+(m.listed?'공개 · 둘러보기':'링크 공유 중')+'</span>':'')+(cur?'<span class="bdg pub">지금 보는 폰</span>':'');
-    var acts=(cur?'':'<button class="btn sm" data-t="open" data-id="'+esc(m.id)+'">열기</button>')+'<button class="btn sm" data-t="share" data-id="'+esc(m.id)+'">공유</button><button class="btn sm danger" data-t="del" data-id="'+esc(m.id)+'">'+(armDel===m.id?'정말 삭제':'삭제')+'</button>';
+    var cur=m.id===S.id,pl=myPlays&&myPlays[m.id],stale=pl&&(m.updatedAt||0)>pl.updatedAt+3000,badges=(m.local?'<span class="bdg">이 기기</span>':'')+(m.cloud?'<span class="bdg">계정</span>':'')+(pl?'<span class="bdg pub">배포 중'+(pl.listed?' · 둘러보기':'')+'</span>':'')+(stale?'<span class="bdg">수정 후 미배포</span>':'')+(m.public?'<span class="bdg">예전 공유 링크</span>':'')+(cur?'<span class="bdg pub">지금 보는 폰</span>':'');
+    var acts=(cur?'':'<button class="btn sm" data-t="open" data-id="'+esc(m.id)+'">열기</button>')+'<button class="btn sm" data-t="share" data-id="'+esc(m.id)+'">배포</button><button class="btn sm danger" data-t="del" data-id="'+esc(m.id)+'">'+(armDel===m.id?'정말 삭제':'삭제')+'</button>';
     var share='';
     if(shareOpen===m.id){
       if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p><div class="row"><button class="btn sm" data-t="exportOne" data-id="'+esc(m.id)+'">파일로 내보내기</button></div>';
-      else if(!Cloud.user)share='<p class="enote">공유하려면 먼저 위에서 Google로 로그인해 주세요.</p>';
-      else if(m.public)share='<div class="copyrow"><input readonly value="'+esc(shareUrl(m.id))+'" id="shareUrl_'+esc(m.id)+'" aria-label="공유 링크"><button class="btn sm primary" data-t="copy" data-id="'+esc(m.id)+'">복사</button></div><label class="ck"><input type="checkbox" data-t="listed" data-id="'+esc(m.id)+'"'+(m.listed?' checked':'')+'> 둘러보기 목록에도 올리기</label><div class="row"><button class="btn sm ghost danger" data-t="unshare" data-id="'+esc(m.id)+'">공유 끄기</button></div>';
-      else share='<p class="enote">링크를 만들면 링크를 가진 누구나 이 폰을 보기 전용으로 볼 수 있어요. 수정 내용은 자동으로 링크에도 반영돼요.</p><div class="row"><button class="btn sm primary" data-t="makeLink" data-id="'+esc(m.id)+'">공유 링크 만들기</button><button class="btn sm" data-t="exportOne" data-id="'+esc(m.id)+'">파일로 내보내기</button></div>';
+      else if(!Cloud.user)share='<p class="enote">배포하려면 먼저 위에서 Google로 로그인해 주세요.</p>';
+      else if(pl)share='<p class="enote">이 링크로 들어온 사람은 폰 화면만 보고 대화할 수 있어요. 꾸미기·시스템·설정은 보이지 않아요.</p><div class="copyrow"><input readonly value="'+esc(playUrl(m.id))+'" id="shareUrl_'+esc(m.id)+'" aria-label="플레이 링크"><button class="btn sm primary" data-t="copy" data-id="'+esc(m.id)+'">복사</button></div><label class="ck"><input type="checkbox" data-t="plListed" data-id="'+esc(m.id)+'"'+(pl.listed?' checked':'')+'> 둘러보기 목록에도 올리기</label><div class="row"><button class="btn sm'+(stale?' primary':'')+'" data-t="publish" data-id="'+esc(m.id)+'">'+(stale?'고친 내용 다시 배포':'다시 배포')+'</button><a class="btn sm" href="'+esc(playUrl(m.id))+'" target="_blank" rel="noopener">플레이 화면 열기</a><button class="btn sm ghost danger" data-t="unpublish" data-id="'+esc(m.id)+'">배포 중단</button></div><p class="enote">다시 배포하면 이미 보던 사람도 새 버전으로 처음부터 다시 시작해요.</p>';
+      else share='<p class="enote">배포하면 플레이 링크가 생겨요. 링크로 들어온 사람은 폰 화면만 즐길 수 있고, 꾸미기·시스템·설정은 볼 수 없어요. 배포한 뒤 고친 내용은 다시 배포해야 반영돼요.</p><div class="row"><button class="btn sm primary" data-t="publish" data-id="'+esc(m.id)+'">배포하기</button><button class="btn sm" data-t="exportOne" data-id="'+esc(m.id)+'">파일로 내보내기</button></div>';
+      if(Cloud.user&&m.public)share+='<p class="enote">예전 방식의 공유 링크가 아직 켜져 있어요.</p><div class="row"><button class="btn sm ghost danger" data-t="unshare" data-id="'+esc(m.id)+'">예전 공유 링크 끄기</button></div>';
       share='<div class="mcard" style="margin-top:-2px">'+share+'</div>';
     }
     return '<div class="story-row'+(cur?' cur':'')+'"><span class="sw-mini" style="background:'+(WALLS[m.wall]||WALLS.dusk)+'"></span><div class="info"><b>'+esc(m.title||'제목 없음')+'</b><small>'+esc(m.name||'')+' · '+fmtTime(m.updatedAt||Date.now())+'</small>'+(m.concept?'<small>컨셉: '+esc(m.concept.slice(0,60))+'</small>':'')+'<div class="badges">'+badges+'</div></div><div class="acts">'+acts+'</div></div>'+share;
   }).join('')+'</div><div class="row"><button class="btn sm" data-t="import">파일 불러오기</button><button class="btn sm" data-t="exportCur">지금 폰 파일로 내보내기</button></div></div>';
   // explore
-  if(Cloud.on){h+='<div class="sec" id="set_explore"><div class="row between"><h3>둘러보기</h3><button class="btn sm" data-t="loadExplore">'+(exploreList?'새로고침':'공개된 폰 보기')+'</button></div><p class="enote">다른 사람들이 둘러보기에 올린 폰이에요. 누르면 보기 전용으로 열려요.</p>';
-    if(exploreList)h+='<div class="list">'+(exploreList.map(function(m){return '<a class="story-row" style="text-decoration:none;color:inherit" href="'+esc(shareUrl(m.id))+'"><span class="sw-mini" style="background:'+(WALLS[m.wall]||WALLS.dusk)+'"></span><div class="info"><b>'+esc(m.title)+'</b><small>'+esc(m.summary.slice(0,70))+'</small><small>만든 사람 '+esc(m.ownerName||'익명')+' · '+fmtTime(m.updatedAt)+'</small></div></a>'}).join('')||'<p class="empty">아직 올라온 폰이 없어요.</p>')+'</div>';
+  if(Cloud.on){h+='<div class="sec" id="set_explore"><div class="row between"><h3>둘러보기</h3><button class="btn sm" data-t="loadExplore">'+(exploreList?'새로고침':'공개된 폰 보기')+'</button></div><p class="enote">관리자들이 배포하고 둘러보기에 올린 폰이에요. 누르면 플레이 화면으로 열려요.</p>';
+    if(exploreList)h+='<div class="list">'+(exploreList.map(function(m){return '<a class="story-row" style="text-decoration:none;color:inherit" href="'+esc(playUrl(m.id))+'"><span class="sw-mini" style="background:'+(WALLS[m.wall]||WALLS.dusk)+'"></span><div class="info"><b>'+esc(m.title)+'</b><small>'+esc(m.summary.slice(0,70))+'</small><small>만든 사람 '+esc(m.ownerName||'익명')+' · '+fmtTime(m.updatedAt)+'</small></div></a>'}).join('')||'<p class="empty">아직 올라온 폰이 없어요.</p>')+'</div>';
     h+='</div>'}
-  // AI
-  h+='<div class="sec" id="set_ai"><h3>AI · API 관리</h3>';
-  if(aiMode()==='preview')h+='<p class="enote">'+esc(window.PHONE_AI_OVERRIDE.note||'')+'</p>';
-  else if(CFG.aiProxy)h+='<p class="enote">이 사이트는 서버를 통해 Gemini에 연결돼요. 따로 키를 넣지 않아도 돼요.</p>';
-  else if(!CFG.allowUserKey)h+='<p class="enote">이 사이트는 AI 기능을 꺼 두었어요.</p>';
-  else{
-    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.')+
-      '<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
-  h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">키 입력됨</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
-  h+='<div class="sec" id="set_screen"><h3>화면</h3><p class="enote">폰 안의 시계와 배터리는 꾸미기에서 정한 값으로 보여요. 사용 중인 기기 자체의 시계·배터리는 웹페이지가 바꾸거나 숨길 수 없어요.'+(fsAvail()?' 전체 화면을 켜면 기기 위쪽 표시줄이 가려져 폰 안의 시계와 배터리만 보여요.</p><div class="row"><button class="btn" data-t="fs">'+(fsOn()?'전체 화면 끄기':'전체 화면 켜기')+'</button></div>':' 이 기기의 브라우저는 전체 화면 기능을 지원하지 않아요. 홈 화면에 추가해서 열면 주소창이 사라져 더 가까워져요.</p>')+'</div>';
-  h+='<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
-    '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
-    '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
-    '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>';
-  h+='<div class="sec" id="set_restart"><h3>처음부터 다시 시작</h3><p class="enote">폰을 열어 나눈 대화와 새로 도착한 메시지를 지우고 시계를 처음부터 다시 흘려요. 폰 꾸미기에서 고친 내용은 이때 폰에 반영돼요.</p><div class="row"><button class="btn danger" data-t="restart">처음부터 다시 시작</button></div></div>';
-  // theme
-  h+='<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>';
+  h+=aiSecHtml(false)+notifSecHtml()+themeSecHtml();
   // danger
   h+='<div class="sec" id="set_danger"><h3>데이터 · 계정 삭제</h3><div class="danger-zone">'+
     '<div><b>이 기기의 데이터 지우기</b><p class="enote">이 브라우저에 저장된 폰 목록과 AI 키를 모두 지워요. 계정에 저장된 폰은 남아 있어요.</p></div><div class="row"><button class="btn sm danger" data-t="wipe">'+(armWipe?'한 번 더 누르면 지워져요':'이 기기 데이터 지우기')+'</button></div>'+
@@ -1377,6 +1464,12 @@ function setAction(d,el){
     case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
     case 'open':openStory(d.id);break;
     case 'share':shareOpen=shareOpen===d.id?null:d.id;renderSettings();break;
+    case 'publish':(function(id){flashSet('배포하는 중…');var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
+      src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(){refreshCloudList();flashSet('배포했어요. 플레이 링크를 복사해서 보내 주세요.')},function(e){flashSet(fbMsg(e))})})(d.id);break;
+    case 'unpublish':askConfirm({title:'배포를 중단할까요?',msg:'플레이 링크가 더 이상 열리지 않고, 둘러보기에서도 사라져요. 이 폰 자체는 그대로 남아요.',ok:'배포 중단'},function(){Cloud.unpublish(d.id).then(function(){refreshCloudList();flashSet('배포를 중단했어요.')},function(e){flashSet(fbMsg(e))})});break;
+    case 'loadAll':Cloud.listAllPlays().then(function(a){allPlays=a;renderSettings()},function(e){flashSet(fbMsg(e))});break;
+    case 'supList':Cloud.setPlay(d.id,{listed:d.v==='1'}).then(function(){allPlays.forEach(function(m){if(m.id===d.id)m.listed=d.v==='1'});renderSettings()},function(e){flashSet(fbMsg(e))});break;
+    case 'supDel':if(armSup!==d.id){armSup=d.id;renderSettings();break}armSup=null;Cloud.unpublish(d.id).then(function(){allPlays=allPlays.filter(function(m){return m.id!==d.id});renderSettings();flashSet('배포를 중단했어요.')},function(e){flashSet(fbMsg(e))});break;
     case 'makeLink':ensureCloud(d.id).then(function(){return Cloud.setShare(d.id,{public:true})}).then(function(){refreshCloudList()},function(e){flashSet(fbMsg(e))});break;
     case 'unshare':Cloud.setShare(d.id,{public:false,listed:false}).then(refreshCloudList,function(e){flashSet(fbMsg(e))});break;
     case 'copy':var inp2=$('#shareUrl_'+d.id);var url=inp2?inp2.value:shareUrl(d.id);
@@ -1400,6 +1493,7 @@ function onSetInput(e){var el=e.target;
   if(el.id==='optSound'){soundOn=el.checked;try{localStorage.setItem('phone-sound',soundOn?'1':'0')}catch(x){}if(soundOn)playDing(true);return}
   if(el.id==='aiImages'){AIS.images=el.checked;saveAIS();renderSettings();return}
   if(el.id==='aiImgModel'){AIS.imageModel=el.value.trim();saveAIS();return}
+  if(el.dataset.t==='plListed'&&e.type==='change'){Cloud.setPlay(el.dataset.id,{listed:el.checked}).then(refreshCloudList,function(x){flashSet(fbMsg(x))});return}
   if(el.dataset.t==='listed'&&e.type==='change'){Cloud.setShare(el.dataset.id,{listed:el.checked}).then(refreshCloudList,function(x){flashSet(fbMsg(x))})}
 }
 function ensureCloud(id){if(!Cloud.user)return Promise.reject({code:'login'});
@@ -1434,7 +1528,7 @@ function build(){
   $('#hb').addEventListener('click',function(){if(!unlocked){if(top().s==='lock')unlockFlow();return}goHome()});
   $('#mbtn').addEventListener('click',openInfo);
   document.addEventListener('click',function(e){var s=e.target.closest('[data-s]');if(!s)return;var k=s.dataset.s;
-    if(k==='edit')openEditor('basic');else if(k==='ai')openEditor('ai');else if(k==='settings')openSettings();else if(k==='relock'){closeSheet();if(viewMode)relock();else{restartStory();toast('처음부터 다시 시작했어요')}}else if(k==='closeSheet')closeSheet();
+    if(k==='edit')openEditor('basic');else if(k==='ai')openEditor('ai');else if(k==='settings')openSettings();else if(k==='relock'){closeSheet();if(playerMode)askConfirm({title:'처음부터 다시 볼까요?',msg:'지금까지 나눈 대화가 지워지고 처음 상태로 돌아가요.',ok:'처음부터 보기'},playerRestart);else if(viewMode)relock();else{restartStory();toast('처음부터 다시 시작했어요')}}else if(k==='closeSheet')closeSheet();else if(k==='keydlg'){closeSheet();openKeyDlg()}
     else if(k==='copy'){var d=snapshot(),own=viewInfo&&Cloud.user&&viewInfo.owner===Cloud.user.uid;d.id=own?S.id:newId();if(!own){d.system={};d.scenario.cast=''}Lib.load().then(function(){return Lib.put(normalize(d))}).then(function(){setCur(d.id);location.href=location.pathname})}});
   var ed=$('#ed');ed.addEventListener('click',function(e){var b=e.target.closest('[data-e]');if(b&&ed.contains(b)&&!b.disabled)edAction(b.dataset,b)});
   ed.addEventListener('input',onEdInput);ed.addEventListener('change',function(e){if(e.target.type==='date'||e.target.tagName==='SELECT'||e.target.type==='checkbox'||e.target.dataset.ping||e.target.dataset.f==='owner.time')onEdInput(e)});
@@ -1452,7 +1546,7 @@ function build(){
     navigator.serviceWorker.register('sw.js').then(function(r){swReg=r},function(){})}}catch(e){}
   document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;if($('#dlg')){closeDlg();return}if($('#sheet')){closeSheet();return}if(!$('#set').hidden){closeSettings();return}var tg=e.target;if(tg&&(tg.tagName==='INPUT'||tg.tagName==='TEXTAREA'||tg.tagName==='SELECT'))return;if(!$('#ed').hidden&&$('#ed').contains(tg))return;if(unlocked)A.back()});
 }
-function startPhone(){loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast('위쪽 검은 섬을 누르면 상황 설명이 나와요')},900)}
+function startPhone(){if(!playerMode||S.owner.name)maybeAskKey();loadBase();startPings();setTimeout(catchUp,1200);layout();renderStatus();reset('lock');renderSide();if(document.body.classList.contains('full'))setTimeout(function(){toast(playerMode?'위쪽 검은 섬을 누르면 설명과 설정이 나와요':'위쪽 검은 섬을 누르면 상황 설명이 나와요')},900)}
 function boot(){
   build();applyTheme();
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
@@ -1461,12 +1555,23 @@ function boot(){
     if(Lib.metas.length)return;
     return Store.get('story').then(function(old){if(old&&old.owner){old.id=old.id||newId();return Lib.put(normalize(old)).then(function(){setCur(old.id);return Store.del('story')})}});
   }).then(function(){
-    if(p&&/^[\w-]{1,80}$/.test(p)){viewMode=true;canEdit=false;S=normalize(blankStory());S.scenario.title='불러오는 중…';startPhone();
-      return cloudP.then(function(ok){if(!ok)throw {code:'unavailable'};return Cloud.fetch(p)}).then(function(r){viewInfo=r.info;return r.story},function(e){viewMode=false;canEdit=true;toast(fbMsg(e));return null});}
-    if(s&&/^[\w-]{1,80}$/.test(s)){viewMode=true;canEdit=false;
-      return fetch('stories/'+s+'.json',{cache:'no-cache'}).then(function(r){if(!r.ok)throw 0;return r.json()}).catch(function(){viewMode=false;canEdit=true;return null});}
+    var pl=q.get('play'),src=null;
+    if(pl&&/^[\w-]{1,80}$/.test(pl))src={key:pl,load:function(){return cloudP.then(function(ok){if(!ok)throw {code:'unavailable'};return Cloud.fetchPlay(pl)})}};
+    else if(p&&/^[\w-]{1,80}$/.test(p))src={key:'p-'+p,load:function(){return cloudP.then(function(ok){if(!ok)throw {code:'unavailable'};return Cloud.fetch(p)}).then(function(r){r.info.version=1;return r})}};
+    else if(s&&/^[\w-]{1,80}$/.test(s))src={key:'s-'+s,load:function(){return fetch('stories/'+s+'.json',{cache:'no-cache'}).then(function(r){if(!r.ok)throw {code:'not_found'};return r.json()}).then(function(j){return {story:j,info:{version:1}}})}};
+    if(src){playerMode=true;viewMode=true;canEdit=false;playKey=src.key;document.body.classList.add('player');
+      S=normalize(blankStory());S.id='pl-'+playKey;S.owner.name='';S.scenario.title='불러오는 중…';startPhone();
+      return src.load().then(function(r){viewInfo=r.info;pubVer=r.info.version||0;pubStory=r.story;
+        return Store.get('play:'+playKey).then(function(sv){
+          var d=JSON.parse(JSON.stringify(r.story));
+          if(sv&&sv.version===pubVer&&sv.story){d=sv.story;d.images=r.story.images||{}}
+          else if(sv){try{localStorage.removeItem('phone-run:pl-'+playKey);localStorage.removeItem('phone-seen:pl-'+playKey)}catch(e){}Store.del('play:'+playKey);setTimeout(function(){toast('새 버전이라 처음부터 시작해요')},1600)}
+          d.id='pl-'+playKey;return d})},
+        function(e){S.scenario.title='폰을 열 수 없어요';S.scenario.text=e&&e.code==='not_found'?'배포가 중단됐거나 링크가 잘못됐어요.':fbMsg(e);renderSide();toast(S.scenario.text);return 'stop'});
+    }
     return null;
   }).then(function(d){
+    if(d==='stop')return;
     if(d){S=normalize(d);if(!S.id)S.id=newId();startPhone();return}
     var cur=getCur(),id=cur&&Lib.has(cur)?cur:(Lib.metas[0]&&Lib.metas[0].id);
     return (id?Lib.get(id):Promise.resolve(null)).then(function(x){
