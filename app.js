@@ -379,7 +379,7 @@ function applyRestart(){edDirty=false;endDraft(true);restartStory();forceClose=t
 function askLeave(){askConfirm({title:'고친 내용을 반영할까요?',msg:'하던 대화는 그대로 남아 있어요. 고친 내용은 처음부터 다시 시작해야 폰에 반영돼요.',ok:'처음부터 다시 시작',no:'수정 버리고 닫기'},applyRestart,function(){endDraft(false);saveLocal();forceClose=true;closeEditor();forceClose=false;rebuild();renderSide()})}
 function restartStory(){
   S.threads=stripLive(S.threads);baseThreads=null;
-  drafts={};typingFor={};for(var rk in replyRetry)clearTimeout(replyRetry[rk]);replyRetry={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
+  drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;
   resetClock();relock();
   if(canEdit)markChanged(true);
   if(!$('#ed').hidden)renderEditor();
@@ -394,7 +394,7 @@ function openKeyDlg(why,done){
   bg.innerHTML='<div class="dlg keydlg" role="dialog" aria-modal="true" aria-labelledby="kdT"><h3 id="kdT">내 API 키 등록</h3><p>'+esc(why||who)+'</p>'+
     '<ol class="kd-steps"><li><a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio 열기 ↗</a></li><li>"API 키 만들기"를 누르고 키를 복사</li><li>아래 칸에 붙여넣기</li></ol>'+
     '<input id="kdIn" type="password" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false" value="'+esc(AIS.key)+'">'+
-    '<p class="kd-msg" id="kdMsg">키는 이 기기에 저장되고, Google로 로그인했다면 내 계정에도 저장돼서 다른 기기에서도 그대로 쓸 수 있어요. 키는 Google에만 보내져요. 다른 사람(관리자·사용자)에게 공유되지 않아요.</p>'+
+    '<p class="kd-msg" id="kdMsg">키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 다른 사람(관리자·사용자)에게 공유되지 않아요.</p>'+
     '<div class="btns two"><button class="btn" data-d="later">나중에</button><button class="btn primary" data-d="save">등록</button></div></div>';
   document.body.appendChild(bg);hpush('dlg');
   try{localStorage.setItem(keyAskKey(),'1')}catch(e){}
@@ -472,9 +472,6 @@ function bindChatInput(root){
   inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&!ev.isComposing){ev.preventDefault();sendLive()}});
   if(drafts[inp.dataset.tid]){inp.value=drafts[inp.dataset.tid];upd()}
   inp.addEventListener('blur',function(){drafts[inp.dataset.tid]=inp.value});
-  [].forEach.call(root.querySelectorAll('[data-a="send"]'),function(btn){
-    btn.addEventListener('mousedown',function(e){e.preventDefault()});
-    btn.addEventListener('touchend',function(e){if(document.activeElement===inp){e.preventDefault();sendLive();inp.focus()}},{passive:false})});
 }
 var drafts={},typingFor={};
 function chatBodyHtml(t){return (t.app==='talk'?talkItems(t):msgItems(t))+(typingFor[t.id]?'<div class="typing"><i></i><i></i><i></i></div>':'')}
@@ -493,12 +490,10 @@ function addLiveSep(t){
 function sep24(v){return str(v).replace(/(오전|오후)\s*(\d{1,2}):(\d{2})/g,function(x){return to24(x)})}
 function sendLive(){
   var inp=$('#chatIn',top().el);if(!inp)return;var v=inp.value.trim();if(!v)return;var t=thr(inp.dataset.tid);if(!t)return;
-  var hadFocus=document.activeElement===inp;
   startClock();
   addLiveSep(t);if(false){var d=phoneNow();t.items.push({k:'date',v:t.app==='talk'?d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일':'오늘 '+nowLabel()});liveDated[t.id]=1}
   t.items.push({w:'me',k:'text',lv:1,v:v,t:nowLabel()});t.when=nowLabel();inp.value='';drafts[t.id]='';inp.dispatchEvent(new Event('input'));
   refreshChat(t);markChanged(true);aiReply(t);
-  if(hadFocus&&document.activeElement!==inp){try{inp.focus({preventScroll:true})}catch(e){inp.focus()}}
 }
 var FREQ={low:{cool:300000,mult:.2,label:'드물게'},mid:{cool:120000,mult:.35,label:'보통'},high:{cool:45000,mult:.7,label:'자주'}};
 var pingTimer=null,lastPing=0,pingBusy=false,pingCount=0;
@@ -522,55 +517,17 @@ function pingPrompt(t,c){
     '\n\n관계와 감정선, 마지막 대화 흐름, 지금 시각을 생각해서 먼저 연락할 자연스러운 이유를 정하고 말풍선 1~3개를 보내라. 이미 한 말을 반복하지 말고, 이야기의 비밀을 직접 설명하지 마라. 실제 한국어 메신저처럼 짧게.\nJSON 배열만 출력: [{"v":"말풍선 내용"}]';
 }
 function openThreadFresh(t){if(!unlocked){pendingOpen=t.id;unlockFlow();return}reset('home',{},null);push(t.app==='talk'?'talk':'msgs',{tab:'chats'},'zoom-in');openThread(t)}
-/* ---------- mobile keyboard (iPhone · iPad · Android) ----------
-   Android: the viewport meta asks the browser to shrink the page itself when the keyboard opens (interactive-widget=resizes-content),
-            so the phone simply gets shorter and nothing has to move.
-   iOS:     Safari never shrinks the page; it slides the whole page up instead, which made the screen jump.
-            So the moment the chat box gets focus (never earlier, or the tap would miss the box) we already make the phone as short as the keyboard will leave room for
-            (remembered from the last time, or a good guess the first time). The box is then above the keyboard,
-            Safari has no reason to slide the page, and we only fine-tune to the real size once the keyboard is up. */
-var APP_VER='20261013r';
-var vvPinned=false,prePin=false,prePinT=null;
-var IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-function layoutH(){return Math.max(innerHeight,document.documentElement.clientHeight)}
-function kbGuess(){var v=0;try{v=+localStorage.getItem('phone-kbh-'+(innerWidth>innerHeight?'l':'p'))||0}catch(e){}
-  if(v>120&&v<layoutH()-150)return v;var tablet=Math.min(screen.width,screen.height)>=600;return Math.round(layoutH()*(tablet?(innerWidth>innerHeight?0.5:0.4):(innerWidth>innerHeight?0.62:0.47)))}
-function kbRemember(h){try{localStorage.setItem('phone-kbh-'+(innerWidth>innerHeight?'l':'p'),String(Math.round(h)))}catch(e){}}
-function pinDevice(t,h){var d=document.getElementById('device');if(!d)return;t=Math.max(0,Math.round(t))+'px';h=Math.round(h)+'px';
-  if(d.style.position!=='fixed'){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto'}
-  if(d.style.top!==t)d.style.top=t;if(d.style.height!==h)d.style.height=h}
-function unpinDevice(){var d=document.getElementById('device');if(d&&d.style.position){d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height=''}}
-/* banner always sits at the top of what is visible (on iPhone the keyboard slides the whole page up, so push the banner down by that amount) */
-function placeBanner(){var b=document.querySelector('.pbanner');if(!b||!phoneEl)return;
-  var vv=window.visualViewport;if(!vv){b.style.top='';return}
-  var r=phoneEl.getBoundingClientRect(),off=Math.round(vv.offsetTop-r.top);
-  b.style.top=(off>0&&off<r.height-120)?'calc(var(--sb) + 4px + '+off+'px)':''}
-/* keep the newest chat bubbles in view when the visible area shrinks (keyboard) or grows back, like a real messenger */
-function anchorChat(){var e=top(),c=e&&e.el&&e.el.querySelector('#cb');if(!c)return;var h=c.clientHeight;
-  if(!c._b){c._b=1;c.addEventListener('scroll',function(){if(c.clientHeight===c._h)c._end=c.scrollTop+c.clientHeight>=c.scrollHeight-40},{passive:true})}
-  if(c._h&&h!==c._h){if(c._end)c.scrollTop=c.scrollHeight;else c.scrollTop+=c._h-h}
-  c._h=h;c._end=c.scrollTop+h>=c.scrollHeight-40}
-function inputFocused(){var a=document.activeElement;return !!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&phoneEl&&phoneEl.contains(a))}
-/* Keyboard: Android shrinks the page itself (viewport meta). iPhone slides the page up with its own smooth animation;
-   we leave that alone (moving the phone ourselves made it jump) and only keep the banner and chat in view. */
-function fitVV(){if(!window.visualViewport)return;
-  if(vvPinned||prePin){prePin=false;vvPinned=false;unpinDevice()}
-  if(!inputFocused()&&(window.scrollY||document.documentElement.scrollTop))window.scrollTo(0,0);
-  placeBanner();anchorChat()}
-function prePinFor(el,atFocus){
-  if(!IS_IOS||!document.body.classList.contains('full')||vvPinned||(!atFocus&&inputFocused())||!el||el.id!=='chatIn')return;
-  anchorChat();prePin=true;pinDevice(0,layoutH()-kbGuess());anchorChat();
-  clearTimeout(prePinT);prePinT=setTimeout(function(){if(!vvPinned){prePin=false;fitVV()}},1300)}
-/* while the keyboard slides in or out, follow it every frame */
-var vvTrackUntil=0;
-function trackVV(ms){var go=!vvTrackUntil||Date.now()>vvTrackUntil;vvTrackUntil=Math.max(vvTrackUntil,Date.now()+(ms||900));
-  if(!go)return;(function loop(){fitVV();if(Date.now()<vvTrackUntil)requestAnimationFrame(loop);else vvTrackUntil=0})()}
-if(window.visualViewport){visualViewport.addEventListener('scroll',function(){trackVV(400)});visualViewport.addEventListener('resize',function(){trackVV(900)})}
-addEventListener('scroll',fitVV,{passive:true});
-addEventListener('resize',function(){anchorChat();trackVV(500)});
-document.addEventListener('focusin',function(){anchorChat();trackVV(1200)});
-document.addEventListener('focusout',function(){setTimeout(function(){if(!inputFocused()){prePin=false;clearTimeout(prePinT)}trackVV(1200)},0)});
-addEventListener('orientationchange',function(){setTimeout(function(){trackVV(600)},200)});
+function placeBanner(){var b=document.querySelector('.pbanner');if(!b||!phoneEl)return;var vv=window.visualViewport,off=0;
+  if(vv){var r=phoneEl.getBoundingClientRect();off=Math.max(0,Math.round(vv.offsetTop-r.top))}
+  b.style.top=off?'calc(var(--sb) + 4px + '+off+'px)':''}
+/* iOS: when the keyboard opens the visible area shrinks and scrolls; pin the phone to exactly that area so the top banner and input stay on screen */
+function fitVV(){var vv=window.visualViewport,d=document.getElementById('device');if(!vv||!d)return;
+  var kb=document.body.classList.contains('full')&&(Math.max(innerHeight,document.documentElement.clientHeight)-vv.height>80);
+  if(kb){d.style.position='fixed';d.style.left='0';d.style.right='0';d.style.width='auto';d.style.top=vv.offsetTop+'px';d.style.height=vv.height+'px'}
+  else{d.style.position='';d.style.left='';d.style.right='';d.style.width='';d.style.top='';d.style.height='';if(window.scrollY||document.documentElement.scrollTop)window.scrollTo(0,0)}
+  placeBanner()}
+if(window.visualViewport){visualViewport.addEventListener('scroll',fitVV);visualViewport.addEventListener('resize',fitVV)}
+addEventListener('scroll',fitVV,{passive:true});document.addEventListener('focusin',function(){[60,250,600].forEach(function(t){setTimeout(fitVV,t)})});document.addEventListener('focusout',function(){[60,250,600,1000].forEach(function(t){setTimeout(fitVV,t)})});addEventListener('orientationchange',function(){setTimeout(fitVV,300)});
 function showBanner(t,text){
   var old=document.querySelector('.pbanner');if(old)old.remove();
   var b=document.createElement('button');b.className='pbanner';
@@ -609,14 +566,12 @@ function notify(t,text){
   playDing();
   if(!e||e.s!=='lock')showBanner(t,text);
 }
-/* show a new bubble wherever the person is: inside that chat, or in the chat list (preview text and time) */
-function liveRefresh(t){if(inThread(t)){refreshChat(t);return}var e=top();if(e&&['msgs','talk'].indexOf(e.s)>=0)repaintTop(true)}
 function inThread(t){var e=top();return e&&(e.s==='chat'||e.s==='tchat')&&e.p.id===t.id}
 function doPing(c,at){
   if(pingBusy)return Promise.resolve();pingBusy=true;lastPing=Date.now();pingCount++;startClock();
   var t=threadFor(c,true);if(!at&&inThread(t)){typingFor[t.id]=1;refreshChat(t)}
   var prompt=null;if(aiMode()){tOverride=at||0;try{prompt=pingPrompt(t,c)}finally{tOverride=0}}
-  var gen=prompt?AI.fast(prompt).then(function(r){return arr(Array.isArray(r)?r:r&&(r.messages||r.items)).map(function(x){return str(x&&x.v).trim()}).filter(Boolean).slice(0,3)}).catch(function(){return []}):Promise.resolve([]);
+  var gen=prompt?AI.json(prompt).then(function(r){return arr(Array.isArray(r)?r:r&&(r.messages||r.items)).map(function(x){return str(x&&x.v).trim()}).filter(Boolean).slice(0,3)}).catch(function(){return []}):Promise.resolve([]);
   return gen.then(function(msgs){
     if(!msgs.length)msgs=[OPENERS[Math.floor(Math.random()*OPENERS.length)]];
     typingFor[t.id]=0;tOverride=at||0;
@@ -645,13 +600,11 @@ function catchUp(){
   chain.then(function(){lastPing=Date.now()});
 }
 var replyBusy={};
-var replyRetry={};
-function isDailyQuota(e){return !!(e&&e.code==='rate_limited'&&/per.?day|daily|PerDay/i.test(String(e.message||'')))}
-function aiReply(t,attempt){attempt=attempt||0;if(replyRetry[t.id])return; // a retry is already waiting; it will answer the newest messages too
+function aiReply(t){
   if(!aiMode()){if(keyAskable())openKeyDlg('답장을 받으려면 내 Gemini API 키를 등록해 주세요. 무료로 만들 수 있어요.');return}
   if(replyBusy[t.id])return;
   replyBusy[t.id]=1;
-  setTimeout(function(){if(replyBusy[t.id]){typingFor[t.id]=1;refreshChat(t)}},250);
+  setTimeout(function(){if(replyBusy[t.id]){typingFor[t.id]=1;refreshChat(t)}},700);
   var others=t.members.filter(function(m){return m!==S.owner.name});
   var who=t.group?'단톡방 "'+t.name+'"의 멤버들('+others.join(', ')+')':"'"+t.name+"'";
   var lines=t.items.slice(-40).map(function(it){if(it.k==='date')return '--- '+sep24(it.v)+' ---';var n=it.w==='me'?S.owner.name:(t.group?(it.n||'?'):t.name);return (it.t?'['+to24(it.t)+'] ':'')+n+': '+(it.k==='photo'?'[사진'+(it.ph&&it.ph.l?': '+it.ph.l:'')+']':it.k==='voice'?'[음성 메시지]':it.v)}).join('\n');
@@ -659,20 +612,13 @@ function aiReply(t,attempt){attempt=attempt||0;if(replyRetry[t.id])return; // a 
     '\n지금 폰의 날짜와 시각: '+(function(){var d=phoneNow();return d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW[d.getDay()]+'요일 '+hhmm(d)})()+'. 시간대(새벽·아침·밤 등)와 시각을 말할 때는 반드시 이 시각에 맞춰라.\n'+
     '\n최근 대화 (위가 오래된 것, [ ]는 보낸 시각):\n'+lines+'\n\n\''+S.owner.name+'\'가 방금 보낸 메시지에 답장해라. 비공개 설정의 성격·말투·관계·지침을 지키고, 지금까지의 맥락과 감정선을 그대로 이어 간다. 실제 한국어 메신저처럼 짧고 자연스럽게, 말풍선 1~3개. 이야기의 비밀을 직접 설명하지 말고, 너는 AI라는 말도 하지 마라.\n'+
     (t.group?'답장은 위 멤버들('+others.join(', ')+') 중에서만 나온다. 폰 주인 \''+S.owner.name+'\'는 절대 답장하지 마라. 폰 주인의 말·행동을 대신 쓰지 마라.\n':'')+'JSON 배열만 출력: [{"v":"말풍선 내용"'+(t.group?',"n":"보낸 멤버 이름(반드시 멤버 중 한 명)"':'')+'}]';
-  AI.fast(prompt).then(function(res){
+  AI.json(prompt).then(function(res){
     var out=arr(Array.isArray(res)?res:res&&(res.messages||res.items)).filter(function(x){return x&&str(x.v).trim()&&!(t.group&&str(x.n).trim()===S.owner.name)}).slice(0,4);
     var i=0;(function next(){if(i>=out.length){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);markChanged(true);
       if(out.length&&(!inThread(t)||document.hidden)){delete seen[t.id];t.unread=maxUnread(t);var e2=top();if(e2&&['lock','home','msgs','talk'].indexOf(e2.s)>=0)repaintTop(true);notify(t,str(out[out.length-1].v))}return}
       var x=out[i++],it={w:'them',k:'text',v:str(x.v),t:nowLabel()};if(t.group){var nn=str(x.n).trim();it.n=(nn&&others.indexOf(nn)>=0)?nn:(others[0]||t.members[0]||'?')}
-      it.lv=1;t.items.push(it);t.when=nowLabel();liveRefresh(t);if(i<out.length)setTimeout(next,350+Math.min(650,it.v.length*18));else next()})();
-  }).catch(function(err){var c=err&&err.code;
-    /* Gemini busy or over its free limit: keep the "typing…" dots on and quietly try again later, so the reply still arrives.
-       Daily limit: try every 10 minutes (it resets the next day). Wrong key: stop and say so. */
-    if(c!=='bad_key'&&c!=='no_ai'&&c!=='blocked'){
-      var wait=isDailyQuota(err)?600000:[8000,15000,30000,60000][Math.min(attempt,3)];
-      typingFor[t.id]=1;replyBusy[t.id]=1;refreshChat(t);
-      replyRetry[t.id]=setTimeout(function(){delete replyRetry[t.id];replyBusy[t.id]=0;aiReply(t,attempt+1)},wait);return}
-    typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(c==='blocked'?'이 대화에는 답장을 만들 수 없어요':aiErrMsg(err))});
+      it.lv=1;t.items.push(it);t.when=nowLabel();refreshChat(t);setTimeout(next,650+Math.min(1400,it.v.length*45))})();
+  }).catch(function(err){typingFor[t.id]=0;replyBusy[t.id]=0;refreshChat(t);toast(err&&err.code==='rate_limited'?'답장이 잠시 늦어지고 있어요':'답장을 받지 못했어요')});
 }
 function playVoice(el){
   if(el._t){clearInterval(el._t);el._t=null;el.querySelectorAll('.wave i').forEach(function(b){b.classList.remove('p')});el.querySelector('.vp').innerHTML=I.play;return}
@@ -689,17 +635,8 @@ function bindSwipe(e){var st=e.el.querySelector('#pvStage');if(!st)return;var x0
 var CFG=Object.assign({aiProxy:'',allowUserKey:true,textModel:'gemini-3.8-flash',textModels:['gemini-3.8-flash','gemini-3.5-flash-lite'],imageModel:'gemini-3.1-flash-image',allowImages:false},window.PHONE_CONFIG||{});
 var AI_KEY='phone-ai-v1';
 var AIS={key:'',textModel:'',imageModel:'',images:false};
-try{Object.assign(AIS,JSON.parse(localStorage.getItem(AI_KEY)||'{}'))}catch(e){}AIS.images=false;
-function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}try{Store.set('ai',JSON.parse(JSON.stringify(AIS)))}catch(e){}keyToCloud()}
-/* logged-in admins keep their key in their own account too, so it comes back on any device after Google login */
-var keyCloudT=null,keyCloudLast=null;
-function keyToCloud(){if(typeof Cloud==='undefined'||!Cloud.user||keyCloudLast===AIS.key)return;clearTimeout(keyCloudT);
-  keyCloudT=setTimeout(function(){var k=AIS.key;Cloud.saveKey(k).then(function(){keyCloudLast=k},function(){})},600)}
-function keyFromCloud(){if(!Cloud.user)return;keyCloudLast=null;
-  Cloud.loadKey().then(function(k){
-    if(k&&!AIS.key){AIS.key=k;keyCloudLast=k;saveAIS();aiTestMsg='';renderSettings();renderSide()}
-    else if(AIS.key&&k!==AIS.key)keyToCloud();
-    else keyCloudLast=k},function(){})}
+try{Object.assign(AIS,JSON.parse(localStorage.getItem(AI_KEY)||'{}'))}catch(e){}
+function saveAIS(){try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}try{Store.set('ai',JSON.parse(JSON.stringify(AIS)))}catch(e){}}
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 function aiMode(){if(window.PHONE_AI_OVERRIDE)return 'preview';return CFG.aiProxy?'proxy':(CFG.allowUserKey&&AIS.key?'key':null)}
 function textModel(){return CFG.textModel}
@@ -743,15 +680,6 @@ var AI={
     return run(0,0).then(function(j){
       var t=partsOf(j).filter(function(p){return p.text&&!p.thought}).map(function(p){return p.text}).join('');if(!t.trim())throw {code:'empty'};return t})},
   json:function(prompt){return AI.text(prompt,true).then(parseJSONLoose)},
-  /* chat replies: the light model answers in about a second; each try gets a few seconds before we move on to the other model */
-  fast:function(prompt){
-    var light=CFG.fastModel||(CFG.textModels||[]).filter(function(m){return /lite/.test(m)})[0]||CFG.textModel;
-    var ms=[light].concat([CFG.textModel].concat(CFG.textModels||[]).filter(function(m,i,a){return m!==light&&a.indexOf(m)===i}));
-    var body={contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:1,responseMimeType:'application/json',maxOutputTokens:400}};
-    function within(p,ms){return Promise.race([p,new Promise(function(_,rej){setTimeout(function(){rej({code:'timeout'})},ms)})])}
-    function run(i){return within(gemini(ms[i],body),i===0?4500:9000).catch(function(e){
-      if(e&&(e.code==='bad_key'||e.code==='no_ai'||e.code==='network'))throw e;if(i+1<ms.length)return run(i+1);throw e})}
-    return run(0).then(function(j){var t=partsOf(j).filter(function(p){return p.text&&!p.thought}).map(function(p){return p.text}).join('');if(!t.trim())throw {code:'empty'};return parseJSONLoose(t)})},
   image:function(prompt){return gemini(imageModel(),{contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}}).then(function(j){
     var ps=partsOf(j);for(var i=0;i<ps.length;i++){var d=ps[i].inlineData||ps[i].inline_data;if(d&&d.data)return compressUrl('data:'+(d.mimeType||d.mime_type||'image/png')+';base64,'+d.data,1000)}
     throw {code:'no_image'}})}
@@ -885,7 +813,7 @@ var viewMode=false,canEdit=true,viewInfo=null;
 var playerMode=false,playKey=null,pubStory=null,pubVer=0,playSaveT=null;
 function savePlay(){if(!playerMode||!playKey)return;clearTimeout(playSaveT);playSaveT=setTimeout(function(){var d=JSON.parse(JSON.stringify(S));delete d.images;Store.set('play:'+playKey,{version:pubVer,story:d,at:Date.now()})},500)}
 function playerRestart(){if(!pubStory)return;var d=JSON.parse(JSON.stringify(pubStory));d.id='pl-'+playKey;S=normalize(d);
-  drafts={};typingFor={};for(var rk in replyRetry)clearTimeout(replyRetry[rk]);replyRetry={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;baseThreads=null;
+  drafts={};typingFor={};replyBusy={};liveQueries=[];hiddenSearch={};pingBusy=false;baseThreads=null;
   resetClock();relock();clearTimeout(playSaveT);Store.del('play:'+playKey);closeSheet();renderSide();toast('처음부터 다시 시작했어요')}
 function renderStatus(){
   var o=S.owner,low=o.battery<=20;
@@ -901,7 +829,7 @@ function sideHtml(){
     (sc.text?'<p class="story">'+esc(sc.text)+'</p>':'')+
     '<div class="btns two">'+(viewMode?'<button class="btn primary" data-s="copy">이 폰 복사해서 꾸미기</button>':'<button class="btn primary" data-s="edit">폰 꾸미기</button>')+'<button class="btn" data-s="relock">처음부터 다시 시작</button></div>';
 }
-function renderSide(){if(!S||!S.scenario)return;var s=$('#side');if(s)s.innerHTML=sideHtml();var sh=$('#sheetIn');if(sh)sh.innerHTML='<span class="grab" aria-hidden="true"></span>'+sideHtml()}
+function renderSide(){var s=$('#side');if(s)s.innerHTML=sideHtml();var sh=$('#sheetIn');if(sh)sh.innerHTML='<span class="grab" aria-hidden="true"></span>'+sideHtml()}
 function openInfo(){var b=document.body.classList;if(!b.contains('full')&&!b.contains('narrow')&&!b.contains('editing'))return;
   if($('#sheet'))return;var bg=document.createElement('div');bg.className='sheet-bg';bg.id='sheet';bg.innerHTML='<div class="sheet" id="sheetIn" role="dialog" aria-label="상황 설명"></div>';document.body.appendChild(bg);renderSide();hpush('sheet');
   bg.addEventListener('click',function(e){if(e.target===bg)closeSheet()})}
@@ -973,12 +901,6 @@ function switchTo(data,opts){
 }
 function blankStory(){return {id:newId(),owner:{name:'새 주인공',status:'',wall:'night',time:'23:30',date:todayStr(),battery:64,pass:'',hint:''},scenario:{title:'',text:'',cast:''},threads:[],friends:[],contacts:[],gallery:[],search:[],memos:[],calls:[],events:[],images:{}}}
 function exampleStory(){var d=JSON.parse(JSON.stringify(window.PHONE_EXAMPLE||blankStory()));d.id=newId();return d}
-/* the example comes from a published phone (config.js examplePlay), so re-publishing that phone updates the example.
-   Falls back to the built-in example when offline or not set. */
-function exampleStoryAsync(){var pid=CFG.examplePlay;if(!pid||!Cloud.cfg())return Promise.resolve(exampleStory());
-  var t=new Promise(function(_,rej){setTimeout(function(){rej({code:'timeout'})},7000)});
-  return Promise.race([Cloud.init().then(function(ok){if(!ok)throw {code:'unavailable'};return Cloud.fetchPlay(pid)}),t])
-    .then(function(r){var d=JSON.parse(JSON.stringify(r.story));d.id=newId();delete d.savedAt;return d},function(){return exampleStory()})}
 function download(name,text){
   if(window.PHONE_SAVE_FILE)return window.PHONE_SAVE_FILE(name,text);
   var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();
@@ -996,8 +918,7 @@ function fbMsg(e){var c=e&&e.code||'';
     too_big:'이 폰은 너무 커서 저장할 수 없어요. 대화나 사진 수를 줄여 주세요.',unavailable:'서버에 연결하지 못했어요. 잠시 뒤에 다시 해 주세요.'}[c]||(e&&e.message?String(e.message).slice(0,160):'문제가 생겼어요.')}
 var Cloud={on:false,ready:false,user:null,err:'',
   cfg:function(){return CFG.firebase&&CFG.firebase.apiKey&&CFG.firebase.projectId?CFG.firebase:null},
-  init:function(){if(this._initP)return this._initP;return this._initP=this._init()},
-  _init:function(){
+  init:function(){
     var c=this.cfg(),self=this;if(!c){self.ready=true;return Promise.resolve(false)}
     var base='https://www.gstatic.com/firebasejs/'+(CFG.firebaseVersion||'10.14.1')+'/';
     return loadScript(base+'firebase-app-compat.js').then(function(){return loadScript(base+'firebase-auth-compat.js')}).then(function(){return loadScript(base+'firebase-firestore-compat.js')}).then(function(){
@@ -1069,30 +990,15 @@ var Cloud={on:false,ready:false,user:null,err:'',
   listAllPlays:function(){var self=this;return self.db.collection('plays').limit(500).get().then(function(qs){var a=[];qs.forEach(function(d){a.push(self.playMeta(d))});return a.sort(function(x,y){return y.updatedAt-x.updatedAt})})},
   setPlay:function(id,patch){return this.playRef(id).update(patch)},
   remove:function(id){var ref=this.ref(id);return ref.collection('images').get().then(function(qs){var ps=[];qs.forEach(function(d){ps.push(d.ref.delete())});return Promise.all(ps)}).then(function(){return ref.delete()})},
-  userRef:function(){return this.user?this.db.collection('users').doc(this.user.uid):null},
-  saveKey:function(k){var r=this.userRef();if(!r)return Promise.resolve();return r.set({geminiKey:k||'',keyAt:Date.now()},{merge:true})},
-  loadKey:function(){var r=this.userRef();if(!r)return Promise.resolve(null);return r.get().then(function(d){return d.exists?(d.data().geminiKey||''):null})},
   deleteAccount:function(){var self=this,u=self.user;
-    return (self.userRef()?self.userRef().delete().catch(function(){}):Promise.resolve()).then(function(){return self.listMine()}).then(function(ms){return ms.reduce(function(p,m){return p.then(function(){return self.remove(m.id)})},Promise.resolve())})
+    return self.listMine().then(function(ms){return ms.reduce(function(p,m){return p.then(function(){return self.remove(m.id)})},Promise.resolve())})
       .then(function(){return self.listMyPlays()}).then(function(ps){return ps.reduce(function(p,m){return p.then(function(){return self.unpublish(m.id)})},Promise.resolve())})
       .then(function(){return u.delete().catch(function(e){if(e&&e.code==='auth/requires-recent-login')return u.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider()).then(function(){return u.delete()});throw e})})}
 };
-var publishing=null;
-function openShare(id){shareOpen=id;
-  if(!(Cloud.cfg()&&Cloud.user)){renderSettings();return}
-  function go(){if(shareOpen!==id)return;if(myPlays&&myPlays[id])renderSettings();else A_publish(id)}
-  if(myPlays){go();return}
-  renderSettings();
-  Cloud.listMyPlays().then(function(a){myPlays={};a.forEach(function(m){myPlays[m.id]=m});go()},function(){myPlays={};go()})}
-function A_publish(id){if(publishing)return;publishing=id;renderSettings();
-  var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
-  src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(ver){
-    publishing=null;myPlays=myPlays||{};var old=myPlays[id]||{};
-    myPlays[id]=Object.assign({},old,{id:id,listed:!!old.listed,version:ver,updatedAt:Date.now()});
-    shareOpen=id;renderSettings();flashSet('배포했어요. 아래 링크를 복사해서 보내 주세요.')},
-  function(e){publishing=null;renderSettings();flashSet(fbMsg(e))})}
+function A_publish(id){flashSet('배포하는 중…');var src=id===S.id?saveLocal().then(function(){return snapshot()}):Lib.get(id);
+      src.then(function(data){if(!data)throw {code:'not_found'};return Cloud.publish(normalize(data))}).then(function(){refreshCloudList();flashSet('배포했어요. 아래 링크를 복사해서 보내 주세요.')},function(e){flashSet(fbMsg(e))})}
 var cloudList=null,exploreList=null,myPlays=null,allPlays=null,armSup=null;
-function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();keyFromCloud();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
+function onAuthChange(){cloudList=null;renderSettings();renderSide();updateFoot();if(Cloud.user&&!viewMode){scheduleCloud();refreshCloudList()}}
 function refreshCloudList(){if(!Cloud.user){cloudList=null;myPlays=null;return}Cloud.listMine().then(function(a){cloudList=a;renderSettings()},function(e){cloudErr=fbMsg(e);renderSettings()});
   Cloud.listMyPlays().then(function(a){myPlays={};a.forEach(function(m){myPlays[m.id]=m});renderSettings()},function(){myPlays={}})}
 function isSuper(){var u=Cloud.user;return !!(u&&u.email&&arr(CFG.superAdmins).map(function(x){return String(x).toLowerCase()}).indexOf(String(u.email).toLowerCase())>=0)}
@@ -1272,7 +1178,7 @@ ED.sys=function(){
 ED.rec=function(){return listSec('search')+listSec('events')+listSec('calls')+listSec('memos')};
 function getPath(o,path){return path.split('.').reduce(function(c,k){return c==null?undefined:c[k]},o)}
 function setPath(o,path,v){var ks=path.split('.'),c=o;for(var i=0;i<ks.length-1;i++){if(c[ks[i]]==null||typeof c[ks[i]]!=='object')c[ks[i]]={};c=c[ks[i]]}c[ks[ks.length-1]]=v}
-function updateFoot(){var el=$('#edStatus');if(!el||!S)return;
+function updateFoot(){var el=$('#edStatus');if(!el)return;
   if(noteMsg){el.className='st'+(noteErr?' err':' dirty');el.textContent=noteMsg;return}
   el.className='st'+(cloudErr?' err':'');
   var t=function(d){return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
@@ -1494,15 +1400,15 @@ function aiSecHtml(player){var h='<div class="sec" id="set_ai"><h3>'+(player?'�
   else if(!CFG.allowUserKey)h+='<p class="enote">이 사이트는 AI 기능을 꺼 두었어요.</p>';
   else{
     h+='<p class="enote">'+(player?'폰 속 인물들과 대화하려면 내 Gemini API 키가 필요해요. 무료로 만들 수 있어요. 키가 없어도 폰은 그대로 둘러볼 수 있어요.':'AI 기능은 각자 자기 Gemini API 키로 써요. 배포한 폰을 보는 사용자도 각자 자기 키를 등록해요. 내 키는 배포 데이터에 들어가지 않아서 사용자에게 공유되지 않아요.')+'</p>';
-    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기에 저장되고, Google로 로그인했다면 내 계정에도 저장돼서 다른 기기에서도 그대로 쓸 수 있어요. 키는 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.');
-  }
+    h+=F('Gemini API 키','<div class="copyrow"><input type="'+(showKey?'text':'password')+'" id="aiKey" value="'+esc(AIS.key)+'" placeholder="키를 붙여넣어 주세요" autocomplete="off" spellcheck="false"><button class="btn sm" data-t="toggleKey">'+(showKey?'숨기기':'보기')+'</button>'+(AIS.key?'<button class="btn sm danger" data-t="clearKey">지우기</button>':'')+'</div>','<a class="hlink2" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio에서 무료 API 키 만들기 ↗</a> 키는 이 기기의 브라우저에만 저장되고 Google에만 보내져요. 무료 등급에서는 보낸 내용이 Google 서비스 개선에 쓰일 수 있어요.');
+    if(!player)h+='<label class="ck"><input type="checkbox" id="aiImages"'+(AIS.images?' checked':'')+'> 사진을 실제 이미지로도 만들기 (결제가 연결된 키 필요)</label>'+(AIS.images?F('이미지 모델','<input id="aiImgModel" value="'+esc(imageModel())+'">'):'')}
   h+='<div class="row"><button class="btn sm" data-t="aiTest">연결 확인</button>'+(aiMode()?'<span class="status-dot on">'+(CFG.aiProxy?'연결됨':'키 입력됨')+'</span>':'<span class="status-dot">연결 안 됨</span>')+(aiTestMsg?'<span class="enote">'+esc(aiTestMsg)+'</span>':'')+'</div></div>';
   return h}
 function notifSecHtml(){return '<div class="sec" id="set_notif"><h3>알림</h3><p class="enote">메시지가 오면 폰 위쪽에 알림 배너가 떠요. 앱 안에서 어느 화면에 있어도 보여요.</p>'+
     '<label class="ck"><input type="checkbox" id="optSound"'+(soundOn?' checked':'')+'> 알림 소리 켜기</label>'+
     '<div class="row"><button class="btn sm" data-t="sysNotif"'+(sysNotifyOk()?' disabled':'')+'>'+(sysNotifyOk()?'시스템 알림 켜짐':'시스템 알림 허용하기')+'</button><button class="btn sm" data-t="testNotif">알림 미리 듣기</button></div>'+
     '<p class="enote">시스템 알림은 이 페이지가 열려 있지만 다른 탭이나 앱에 가 있을 때 기기 알림으로 와요. 아이폰·아이패드는 Safari 공유 버튼 › "홈 화면에 추가"로 설치해야 해요. 페이지를 완전히 닫으면 알림은 오지 않고, 다시 열 때 그동안 온 메시지가 한꺼번에 도착해요.</p></div>'}
-function themeSecHtml(){return '<div class="sec" id="set_theme"><div class="row between"><h3>테마</h3><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p><p class="enote" style="opacity:.6">Snoop 버전 '+APP_VER+'</p></div>'}
+function themeSecHtml(){return '<div class="sec" id="set_theme"><h3>화면</h3><div class="row between"><span>테마</span><span class="segm" role="group" aria-label="테마">'+[['system','시스템'],['light','라이트'],['dark','다크']].map(function(x){return '<button class="'+(themePref===x[0]?'on':'')+'" data-t="theme" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</span></div><p class="enote">폰 안의 앱 화면도 같은 테마를 따라가요.</p></div>'}
 function renderSettings(){
   if(!$('#set')||$('#set').hidden)return;
   var b=$('#setBody'),st=b.scrollTop,h='';
@@ -1531,9 +1437,7 @@ function renderSettings(){
     var acts=(cur?'':'<button class="btn sm" data-t="open" data-id="'+esc(m.id)+'">열기</button>')+'<button class="btn sm" data-t="share" data-id="'+esc(m.id)+'">배포</button><button class="btn sm danger" data-t="del" data-id="'+esc(m.id)+'">'+(armDel===m.id?'정말 삭제':'삭제')+'</button>';
     var share='';
     if(shareOpen===m.id){
-      if(publishing===m.id)share='<p class="enote">배포하는 중… 잠시만 기다려 주세요.</p>';
-      else if(Cloud.cfg()&&Cloud.user&&!myPlays)share='<p class="enote">배포 정보를 불러오는 중…</p>';
-      else if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p>';
+      if(!Cloud.cfg())share='<p class="enote">링크 공유는 사이트에 로그인 기능이 설정돼야 쓸 수 있어요. 지금은 파일로 내보내서 보낼 수 있어요.</p>';
       else if(!Cloud.user)share='<p class="enote">배포하려면 먼저 위에서 Google로 로그인해 주세요.</p>';
       else if(pl)share='<p class="enote">이 링크로 들어온 사람은 폰 화면만 보고 대화할 수 있어요. 꾸미기·시스템·설정은 보이지 않아요.</p><div class="copyrow"><input readonly value="'+esc(playUrl(m.id))+'" id="shareUrl_'+esc(m.id)+'" aria-label="플레이 링크"><button class="btn sm primary" data-t="copy" data-id="'+esc(m.id)+'">복사</button></div><div class="row"><button class="btn sm'+(stale?' primary':'')+'" data-t="publish" data-id="'+esc(m.id)+'">'+(stale?'고친 내용 다시 배포':'다시 배포')+'</button><a class="btn sm" href="'+esc(playUrl(m.id))+'" target="_blank" rel="noopener">플레이 화면 열기</a><button class="btn sm ghost danger" data-t="unpublish" data-id="'+esc(m.id)+'">배포 중단</button></div><p class="enote">다시 배포하면 이미 보던 사람도 새 버전으로 처음부터 다시 시작해요.</p>';
       else share='<p class="enote">배포하면 플레이 링크가 생겨요. 링크로 들어온 사람은 폰 화면만 즐길 수 있고, 꾸미기·시스템·설정은 볼 수 없어요. 배포한 뒤 고친 내용은 다시 배포해야 반영돼요.</p><div class="row"><button class="btn sm primary" data-t="publish" data-id="'+esc(m.id)+'">배포하기</button></div>';
@@ -1559,9 +1463,10 @@ function setAction(d,el){
     case 'restart':if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();askConfirm({title:'처음부터 다시 시작할까요?',msg:'이전 대화 기록이 모두 사라져요. 폰 꾸미기에서 고친 내용은 그대로 반영되고, 되돌릴 수 없어요.',ok:'모두 지우고 시작'},function(){applyRestart()});break;
     case 'login':Cloud.err='';Cloud.signIn().then(function(){renderSettings()},function(e){Cloud.err=fbMsg(e);renderSettings()});break;
     case 'logout':Cloud.signOut();break;
-    case 'newBlank':case 'newEx':saveLocal();(d.t==='newBlank'?Promise.resolve(blankStory()):(flashSet('예시를 불러오는 중…'),exampleStoryAsync())).then(switchTo).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
+    case 'newBlank':case 'newEx':saveLocal();switchTo(d.t==='newBlank'?blankStory():exampleStory()).then(function(){closeSettings();setTimeout(function(){openEditor(d.t==='newBlank'?'basic':'ai')},80)});break;
     case 'open':openStory(d.id);break;
-    case 'share':if(shareOpen===d.id){shareOpen=null;renderSettings();break}openShare(d.id);break;
+    case 'share':if(shareOpen===d.id){shareOpen=null;renderSettings();break}shareOpen=d.id;renderSettings();
+      if(Cloud.cfg()&&Cloud.user&&!(myPlays&&myPlays[d.id]))A_publish(d.id);break;
     case 'publish':A_publish(d.id);break;
     case 'unpublish':askConfirm({title:'배포를 중단할까요?',msg:'플레이 링크가 더 이상 열리지 않고, 둘러보기에서도 사라져요. 이 폰 자체는 그대로 남아요.',ok:'배포 중단'},function(){Cloud.unpublish(d.id).then(function(){refreshCloudList();flashSet('배포를 중단했어요.')},function(e){flashSet(fbMsg(e))})});break;
     case 'loadAll':Cloud.listAllPlays().then(function(a){allPlays=a;renderSettings()},function(e){flashSet(fbMsg(e))});break;
@@ -1578,19 +1483,15 @@ function setAction(d,el){
     case 'loadExplore':Cloud.explore().then(function(a){exploreList=a;renderSettings()},function(e){flashSet(fbMsg(e))});break;
     case 'toggleKey':showKey=!showKey;renderSettings();break;
     case 'clearKey':AIS.key='';saveAIS();aiTestMsg='';renderSettings();renderSide();break;
-    case 'aiTest':runKeyTest();break;
+    case 'aiTest':if(!aiMode()){aiTestMsg='먼저 키를 넣어 주세요.';renderSettings();break}aiTestMsg='확인 중…';renderSettings();AI.text('연결 확인입니다. "확인"이라고만 답하세요.').then(function(){aiTestMsg='정상이에요'},function(e){aiTestMsg=aiErrMsg(e)}).then(function(){renderSettings();renderSide()});break;
     case 'theme':themePref=d.v;try{localStorage.setItem(THEME_KEY,themePref)}catch(e){}applyTheme();renderSettings();break;
-    case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}Store.del('ai');AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return exampleStoryAsync().then(function(d){return switchTo(d)})}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
+    case 'wipe':if(!armWipe){armWipe=true;renderSettings();break}armWipe=false;Store.clear().then(function(){try{['phone-cur','phone-ai-v1'].forEach(function(k){localStorage.removeItem(k)})}catch(e){}Store.del('ai');AIS={key:'',textModel:'',imageModel:'',images:false};Lib.metas=[];return switchTo(exampleStory())}).then(function(){renderSettings();flashSet('이 기기의 데이터를 지웠어요.')});break;
     case 'delAcct':if(!armAcct){armAcct=true;renderSettings();break}armAcct=false;flashSet('계정을 삭제하는 중…');Cloud.deleteAccount().then(function(){cloudList=null;flashSet('계정을 삭제했어요. 이 기기에 있는 폰은 남아 있어요.');renderSettings()},function(e){flashSet(fbMsg(e))});break;
   }
 }
-var keyTestT=null,keyTestN=0;
-function runKeyTest(){if(!aiMode()){aiTestMsg='먼저 키를 넣어 주세요.';renderSettings();return}var n=++keyTestN;aiTestMsg='확인 중…';renderSettings();
-  AI.text('연결 확인입니다. "확인"이라고만 답하세요.').then(function(){if(n===keyTestN)aiTestMsg='정상이에요'},function(e){if(n===keyTestN)aiTestMsg=aiErrMsg(e)}).then(function(){if(n===keyTestN){renderSettings();renderSide()}})}
 function flashSet(msg){var el=$('#setStatus');if(el){el.textContent=msg;clearTimeout(el._t);el._t=setTimeout(function(){el.textContent=''},8000)}}
 function onSetInput(e){var el=e.target;
-  if(el.id==='aiKey'){var nk=el.value.trim();if(nk===AIS.key)return;AIS.key=nk;saveAIS();aiTestMsg='';renderSide();
-    clearTimeout(keyTestT);if(nk.length>=30)keyTestT=setTimeout(function(){if(AIS.key===nk)runKeyTest()},700);return}
+  if(el.id==='aiKey'){AIS.key=el.value.trim();saveAIS();aiTestMsg='';renderSide();return}
   if(el.id==='optSound'){soundOn=el.checked;try{localStorage.setItem('phone-sound',soundOn?'1':'0')}catch(x){}if(soundOn)playDing(true);return}
   if(el.id==='aiImages'){AIS.images=el.checked;saveAIS();renderSettings();return}
   if(el.id==='aiImgModel'){AIS.imageModel=el.value.trim();saveAIS();return}
@@ -1610,7 +1511,7 @@ function deleteStory(id){
   var cm=arr(cloudList).some(function(c){return c.id===id});
   Promise.all([Lib.has(id)?Lib.del(id):null,cm&&Cloud.user?Cloud.remove(id).catch(function(e){flashSet(fbMsg(e))}):null]).then(function(){
     if(cloudList)cloudList=cloudList.filter(function(c){return c.id!==id});
-    if(id===S.id){var next=Lib.metas[0];(next?Lib.get(next.id):Promise.resolve(null)).then(function(d){return d||exampleStoryAsync()}).then(function(d){return switchTo(d)}).then(renderSettings)}else renderSettings();
+    if(id===S.id){var next=Lib.metas[0];(next?Lib.get(next.id):Promise.resolve(null)).then(function(d){return switchTo(d||exampleStory())}).then(renderSettings)}else renderSettings();
     flashSet('삭제했어요.');
   });
 }
@@ -1653,7 +1554,7 @@ function boot(){
   var q=new URLSearchParams(location.search),p=q.get('p'),s=q.get('s');
   var cloudP=Cloud.init();
   Store.get('ai').then(function(a){
-    if(a&&a.key&&!AIS.key){Object.assign(AIS,a);AIS.images=false;try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
+    if(a&&a.key&&!AIS.key){Object.assign(AIS,a);try{localStorage.setItem(AI_KEY,JSON.stringify(AIS))}catch(e){}}
     else if(AIS.key&&!(a&&a.key))Store.set('ai',JSON.parse(JSON.stringify(AIS)))
   }).catch(function(){}).then(function(){return Lib.load()}).then(function(){
     if(Lib.metas.length)return;
@@ -1678,9 +1579,9 @@ function boot(){
     if(d==='stop')return;
     if(d){S=normalize(d);if(!S.id)S.id=newId();startPhone();return}
     var cur=getCur(),id=cur&&Lib.has(cur)?cur:(Lib.metas[0]&&Lib.metas[0].id);
-    return (id?Lib.get(id):Promise.resolve(null)).then(function(x){return x?{d:x,saved:true}:exampleStoryAsync().then(function(d){return {d:d}})}).then(function(r){
-      S=normalize(r.d);if(!S.id)S.id=newId();setCur(S.id);startPhone();
-      if(!r.saved)saveLocal();
+    return (id?Lib.get(id):Promise.resolve(null)).then(function(x){
+      S=normalize(x||exampleStory());if(!S.id)S.id=newId();setCur(S.id);startPhone();
+      if(!x)saveLocal();
     });
   });
 }
